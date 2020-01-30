@@ -553,6 +553,8 @@ sub PrepareGenericCommand {
     if ($out) {
         $self->{raw_data} = $out;
         my $json;
+        # trim off garbage at line ending
+        $out =~ s/([\x00-\x20]*)\Z//ms;
 
 		eval {
      		# code that might throw exception
@@ -1653,6 +1655,57 @@ elsif ( $cfgCmd eq "DeleteUser" ) {
             { Name => $cfgModUserName } );
     }
 }
+elsif ( $cfgCmd eq "OPPTZControl" ) {
+    $decoded = $dvr->PrepareGenericCommand( IPcam::PTZ_REQ,
+                { Name => "OPPTZControl", OPPTZControl => {
+                    "Command" =>      "DirectionLeft",
+                    "Parameter" =>    {
+                            "AUX" =>  {
+                                    "Number" =>       0,
+                                    "Status" =>       "On"
+                            },
+                            "Channel" =>      0,
+                            "MenuOpts" =>     "Enter",
+                            "POINT" =>        {
+                                    "bottom" =>       0,
+                                    "left" => 0,
+                                    "right" =>        0,
+                                    "top" =>  0
+                            },
+                            "Pattern" =>      "SetBegin",
+                            "Preset" =>       65535,
+                            "Step" => 8,
+                            "Tour" => 0,
+                    }
+                }
+            } );
+    print Dumper $decoded;
+    sleep 1;
+    $decoded = $dvr->PrepareGenericCommand( IPcam::PTZ_REQ,
+                { Name => "OPPTZControl", OPPTZControl => {
+                    "Command" =>      "DirectionLeft",
+                    "Parameter" =>    {
+                            "AUX" =>  {
+                                    "Number" =>       0,
+                                    "Status" =>       "On"
+                            },
+                            "Channel" =>      0,
+                            "MenuOpts" =>     "Enter",
+                            "POINT" =>        {
+                                    "bottom" =>       0,
+                                    "left" => 0,
+                                    "right" =>        0,
+                                    "top" =>  0
+                            },
+                            "Pattern" =>      "SetBegin",
+                            "Preset" =>       -1,
+                            "Step" => 8,
+                            "Tour" => 0,
+                    }
+                }
+            } );
+    print Dumper $decoded;
+}
 elsif ( $cfgCmd eq "ChannelTitle" ) {
     $decoded = $dvr->PrepareGenericCommand( IPcam::CONFIG_CHANNELTILE_GET,
         { Name => "ChannelTitle" } );
@@ -1900,3 +1953,4 @@ Debug output
 B<This program> can control the Hi35xx Sofia powered DVR/NVR.
 
 =cut
+
