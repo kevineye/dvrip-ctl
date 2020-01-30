@@ -1174,6 +1174,17 @@ sub cmd_config_get {
   return $self->prepare_generic_command(CONFIG_GET, $pkt);
 }
 
+sub cmd_config_set {
+  my $self = shift;
+  my $name = shift;
+  my $value = shift;
+
+  my $pkt = { Name => $name, $name => $value };
+
+  return $self->prepare_generic_command(CONFIG_SET, $pkt);
+}
+
+
 sub cmd_ptz_control {
   my $self = shift;
   my $parameters = $_[0];

@@ -61,6 +61,8 @@ Commands:
                           OPMachine
                           Simplify.Encode
                           Uart
+  config_set              <config> <value | json>
+
 
   alarm_info              { ... }
   net_keyboard            { ... }
@@ -92,7 +94,7 @@ die "authentication failed\n" if $res->{Ret} >= 200;
 
 my $method = "cmd_$cmd";
 die "invalid command '$cmd'\n" unless $cam->can($method);
-my @params = @ARGV;
+my @params = map { /^[{\[]/ ? decode_json $_ : $_ } @ARGV;
 
 $res = $cam->$method(@params);
 
