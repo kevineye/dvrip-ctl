@@ -46,6 +46,7 @@ Commands:
   alarm_start
 
   snap                    <filename.jpg>
+  monitor                 <filename.h264|mkv|mp4|jpg> [seconds] (any ffmpeg format)
   set_time                <nortc>
   export_config           <filename.tar.gz>
   ptz                     <up|down|left|right> <ms>
@@ -63,7 +64,6 @@ Commands:
                           Simplify.Encode
                           Uart
   config_set              <config> <value | json>
-
 
   alarm_info              { ... }
   net_keyboard            { ... }

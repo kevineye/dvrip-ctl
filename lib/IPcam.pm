@@ -852,36 +852,19 @@ sub cmd_monitor_claim {
 
   my $pkt = {
     Name      => 'OPMonitor',
-    SessionID => $self->_build_packet_sid(),
     OPMonitor => {
       Action    => "Claim",
       Parameter => {
         Channel    => 0,
-        CombinMode => "NONE",
-        StreamType => "Extra1",
+        CombinMode => "CONNECT_ALL",
+        StreamType => "Main",
         TransMode  => "TCP"
       }
     }
   };
 
-  my $cmd_data = $self->build_packet(MONITOR_CLAIM, $pkt);
-
-  $self->{socket}->send($cmd_data);
-
-  my $reply = $self->_get_reply_head();
-
-  #for my $k (keys %{$reply}) {
-  #  print "rh = $k\n";
-  #}
-
-  my $out = $self->get_reply_data($reply);
-  # trim off garbage at line ending
-  $out =~ s/([\x00-\x20]*)\Z//ms;
-  my $out1 = decode_json($out);
-
-  # $self->{socket}->recv($data, 1);
-
-  return $out1;
+  my $res = $self->prepare_generic_command(MONITOR_CLAIM, $pkt);
+  return $res;
 }
 
 sub cmd_monitor_stop {
@@ -895,7 +878,7 @@ sub cmd_monitor_stop {
       Parameter => {
         Channel    => 0,
         CombinMode => "NONE",
-        StreamType => "Extra1",
+        StreamType => "Main",
         TransMode  => "TCP"
       }
     }
@@ -922,6 +905,8 @@ sub cmd_monitor_stop {
 
 sub cmd_monitor_start {
   my $self = shift;
+  my $file = shift;
+  my $mode = shift || '>';
 
   my $pkt = {
     Name      => 'OPMonitor',
@@ -931,49 +916,24 @@ sub cmd_monitor_start {
       Parameter => {
         Channel    => 0,
         CombinMode => "NONE",
-        StreamType => "Extra1",
+        StreamType => "Main",
         TransMode  => "TCP"
       }
     }
   };
 
   my $cmd_data = $self->build_packet(MONITOR_REQ, $pkt);
-
   $self->{socket}->send($cmd_data);
 
-  open(OUT, ">> " . $self->{sid} . ".h264");
+  open my($fh), $mode, $file;
 
   my $stop = 0;
-
   while (defined(my $reply = $self->_get_reply_head()) and $stop == 0) {
-    if (sprintf("%x", $reply->{Data1}) ne "12ff") {
-
-      for my $k (keys %{$reply}) {
-        print "rh = $k\n";
-      }
-
-      print "Content_Length = " . $reply->{Content_Length} . "\n";
-
-      my $out = $self->get_reply_data($reply);
-      print OUT $out;
-
-      if ($reply->{Sequence} > 3) {
-
-        #$stop = 1;
-        $self->cmd_keepalive();
-      }
-
-    }
-    else {
-      $stop = 1;
-      last;
-    }
-
+    print $fh $self->get_reply_data($reply);
   }
 
-  close(OUT);
-
-  return $self->{sid} . ".h264";
+  close $fh;
+  return 1;
 }
 
 sub cmd_set_time {
@@ -1293,6 +1253,23 @@ sub cmd_alarm_start {
     }
     $self->cmd_keepalive;
   }
+}
+
+sub cmd_monitor {
+  my ($self, $file, $seconds) = @_;
+  my $mode = '>';
+  unless ($file =~ /\.h264$/) {
+    $mode = '|-';
+    if ($file =~ /\.jpe?g|\.png/) {
+      $file = "ffmpeg -loglevel panic -hide_banner -f h264 -i - -frames:v 1 -y '$file'";
+    } else {
+      my $time = $seconds ? "-t $seconds " : "";
+      $file = "ffmpeg -loglevel panic -hide_banner -f h264 -i - -c copy -y $time '$file'";
+    }
+  }
+  my $res = $self->cmd_monitor_claim;
+  return $res unless $res->{Ret} == 100;
+  return $self->cmd_monitor_start($file, $mode);
 }
 
 1;
