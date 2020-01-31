@@ -6,6 +6,7 @@ use warnings;
 
 use Data::Dumper;
 use Digest::MD5 qw(md5 md5_hex);
+use IO::Select;
 use IO::Socket::INET;
 use IO::Socket;
 use JSON;
@@ -513,6 +514,7 @@ sub _prepare_generic_command_head {
 }
 
 sub prepare_generic_command {
+
   my $self = shift;
   my $msgid = $_[0];
   my $parameters = $_[1];
@@ -1261,6 +1263,36 @@ sub cmd_ptz_preset {
   $self->cmd_ptz(left => 27000);
   $self->cmd_ptz(right => shift || 0);
   $self->cmd_ptz(down => shift || 0);
+}
+
+sub cmd_alarm_start {
+  my $self = shift;
+  my $cb = shift || sub { print encode_json($_[1])."\n" };
+
+  my $pkt = {
+    Name      => '',
+    SessionID => $self->_build_packet_sid(),
+  };
+
+  my $res = $self->prepare_generic_command(GUARD_REQ, $pkt);
+  return $res unless $res->{Ret} == 100;
+
+  # wait for alarms
+  my $select = IO::Select->new;
+  $select->add($self->{socket});
+  while (1) {
+    $! = 0;
+    my @ready = $select->can_read(20);
+    last if $!;
+    if (@ready) {
+      my $reply_head = $self->_get_reply_head();
+      my $out = $self->get_reply_data($reply_head);
+      # trim off garbage at line ending
+      $out =~ s/([\x00-\x20]*)\Z//ms;
+      $cb->($self, decode_json($out)->{AlarmInfo});
+    }
+    $self->cmd_keepalive;
+  }
 }
 
 1;

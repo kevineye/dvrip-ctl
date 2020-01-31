@@ -43,6 +43,7 @@ Commands:
   system_function
   users
   groups
+  alarm_start
 
   snap                    <filename.jpg>
   set_time                <nortc>
@@ -87,6 +88,8 @@ my $cam = IPcam->new(
   password => $pass,
   debug    => $debug,
 );
+
+$| = 1;
 
 my $res = $cam->cmd_login;
 die "cannot connect\n" unless $cam->{sid};
