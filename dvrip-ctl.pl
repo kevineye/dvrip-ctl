@@ -47,6 +47,8 @@ Commands:
 
   snap                    <filename.jpg>
   monitor                 <filename.h264|mkv|mp4|jpg> [seconds] (any ffmpeg format)
+  ls                      <start> <end> (formats: YYYY-MM-DD HH:MM:SS or epoch or negative offset from now)
+  download                { <file from ls> } <filename.h264|mkv|mp4|jpg> (any ffmpeg format)
   set_time                <nortc>
   export_config           <filename.tar.gz>
   ptz                     <up|down|left|right> <ms>

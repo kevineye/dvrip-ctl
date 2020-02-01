@@ -41,6 +41,16 @@ Move PTZ camera:
     dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
       ptz_abs 2000 18000
 
+List and download files:
+
+    # list videos from last hour
+    dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
+      ls 3600 0
+
+    # download file from list
+    dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
+      download { insert json from ls } video.mp4
+
 Get and set settings:
 
     dvrip-ctl.pl -host 192.168.1.100 -pass changeme \

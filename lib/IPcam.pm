@@ -368,7 +368,7 @@ sub build_packet {
   return $pkt_data;
 }
 
-sub _get_reply_head {
+sub get_reply_head {
 
   my $self = shift;
 
@@ -419,17 +419,16 @@ sub _get_reply_head {
 
 sub get_reply_data {
   my $self = shift;
-
   my $reply = $_[0];
 
   my $length = $reply->{'Content_Length'};
-
   my $out;
 
-  for (my $downloaded = 0; $downloaded < $length; $downloaded++) {
-    $self->{socket}->recv(my $data, 1);
+  do {
+    $self->{socket}->recv(my $data, $length) // die "recv: $!";
+    $length -= length $data;
     $out .= $data;
-  }
+  } while ($length > 0);
 
   return $out;
 }
@@ -490,7 +489,7 @@ sub get_version_info {
   return %$ver;
 }
 
-sub _prepare_generic_command_head {
+sub prepare_generic_command_head {
 
   my $self = shift;
   my $msgid = $_[0];
@@ -509,7 +508,7 @@ sub _prepare_generic_command_head {
   my $cmd_data = $self->build_packet($msgid, $pkt);
 
   $self->{socket}->send($cmd_data);
-  my $reply_head = $self->_get_reply_head();
+  my $reply_head = $self->get_reply_head();
   return $reply_head;
 }
 
@@ -519,7 +518,7 @@ sub prepare_generic_command {
   my $msgid = $_[0];
   my $parameters = $_[1];
 
-  my $reply_head = $self->_prepare_generic_command_head($msgid, $parameters);
+  my $reply_head = $self->prepare_generic_command_head($msgid, $parameters);
   my $out = $self->get_reply_data($reply_head);
 
   if ($out) {
@@ -552,64 +551,13 @@ sub prepare_generic_command {
   return undef;
 }
 
-sub prepare_generic_stream_download_command {
-  my $self = shift;
-  my $msgid = $_[0];
-  my $parameters = $_[1];
-  my $file = $_[2];
-
-  my $reply_head = $self->_prepare_generic_command_head($msgid, $parameters);
-  my $out = $self->get_reply_data($reply_head);
-
-  if ($out) {
-    $self->{raw_data} = $out;
-
-    open(OUT, ">$file");
-    print OUT $out;
-    close(OUT);
-
-    return $out;
-
-  }
-
-  return undef;
-}
-
-sub write_json_data_to_file {
-  my $self = shift;
-  my $filename = $_[0];
-  my $extension = $_[1];
-  my $data = $_[2];
-
-  return 0 if ($filename eq '');
-
-  if ($filename !~ /\.$extension$/) {
-    $filename .= ".$extension";
-  }
-
-  my $json = JSON->new;
-  my $filedata;
-  my $type = ref($data);
-
-  if ($type eq 'HASH' || $type eq 'ARRAY') {
-    $filedata = $json->encode($data);
-  }
-  else {
-    $filedata = $data;
-  }
-
-  open(OUT, "> $filename");
-  print OUT $filedata;
-  close(OUT);
-}
-
 sub prepare_generic_file_download_command {
   my $self = shift;
   my $msgid = $_[0];
   my $parameters = $_[1];
   my $file = $_[2];
 
-  my $reply_head = $self->_prepare_generic_command_head($msgid, $parameters);
+  my $reply_head = $self->prepare_generic_command_head($msgid, $parameters);
   my $out = $self->get_reply_data($reply_head);
 
   open(OUT, ">$file");
@@ -675,7 +623,7 @@ sub _plain_hash {
   return $message;
 }
 
-sub make_hash {
+sub _make_hash {
   my $self = shift;
   my $message = $_[0];
 
@@ -686,21 +634,13 @@ sub make_hash {
   }
 }
 
-sub _parse_timestamp {
-  my $self = shift;
-  my $timestamp = $_[0];
-  $timestamp =~ s/T/ /;
-  $timestamp =~ s/Z//;
-  return $timestamp;
-}
-
 sub cmd_login {
   my $self = shift;
 
   my $pkt = {
     EncryptType => "MD5",
     LoginType   => "DVRIP-Web",
-    PassWord    => $self->make_hash($self->{password}),
+    PassWord    => $self->_make_hash($self->{password}),
     UserName    => $self->{user}
 
   };
@@ -768,7 +708,7 @@ sub cmd_alarm_center_message {
   my $cmd_data = $self->build_packet(ALARMCENTER_MSG_REQ, $pkt);
 
   $self->{socket}->send($cmd_data);
-  my $reply_head = $self->_get_reply_head();
+  my $reply_head = $self->get_reply_head();
   my $out = $self->get_reply_data($reply_head);
   # trim off garbage at line ending
   $out =~ s/([\x00-\x20]*)\Z//ms;
@@ -887,7 +827,7 @@ sub cmd_monitor_stop {
   my $cmd_data = $self->build_packet(MONITOR_REQ, $pkt);
   $self->{socket}->send($cmd_data);
 
-  my $reply = $self->_get_reply_head();
+  my $reply = $self->get_reply_head();
 
   for my $k (keys %{$reply}) {
     print "rh = $k\n";
@@ -928,7 +868,7 @@ sub cmd_monitor_start {
   open my($fh), $mode, $file;
 
   my $stop = 0;
-  while (defined(my $reply = $self->_get_reply_head()) and $stop == 0) {
+  while (defined(my $reply = $self->get_reply_head()) and $stop == 0) {
     print $fh $self->get_reply_data($reply);
   }
 
@@ -964,7 +904,7 @@ sub cmd_set_time {
   my $cmd_data = $self->build_packet($pkt_type, $pkt);
 
   $self->{socket}->send($cmd_data);
-  my $reply = $self->_get_reply_head();
+  my $reply = $self->get_reply_head();
   my $out = $self->get_reply_data($reply);
 
   if ($out) {
@@ -976,7 +916,6 @@ sub cmd_set_time {
   return undef;
 }
 
-#buggy
 sub cmd_system_function {
   my $self = shift;
 
@@ -1007,78 +946,31 @@ sub cmd_oem_info {
 }
 
 sub cmd_playback {
-  my $self = shift;
-  my $parameters = $_[0];
-  my $file = $_[1];
+  my ($self, $parameters) = @_;
 
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
 
-  my $msgid = PLAY_REQ;
-
-  if ($parameters->{'Action'} eq 'Claim') {
-    $msgid = PLAY_CLAIM;
-
-    #return $self->PrepareGenericStreamDownloadCommand($msgid, $pkt, $file, 666);
-  }
-
-  if ($parameters->{'Action'} eq 'DownloadStart') {
-    return $self->_prepare_generic_command_head($msgid, $parameters);
-  }
-
-  return $self->prepare_generic_command($msgid, $pkt);
+  return $self->prepare_generic_command(PLAY_CLAIM, $pkt);
 }
 
 sub cmd_playback_download_start {
-  my $self = shift;
-  my $parameters = $_[0];
+  my ($self, $parameters, $file, $mode) = @_;
 
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
 
-  my $fname = $parameters->{'Parameter'}->{'FileName'};
-  $fname =~ s/^\///g;
-  $fname =~ s/\//_/g;
-
-  my $counter = 0;
-
-  print "download fname: " . $fname . "\n";
-
-  if ($counter == 0) {
-    my $reply_head = $self->_prepare_generic_command_head(PLAY_REQ, $pkt);
-    my $container = $self->get_reply_data($reply_head);
-
-    open(OUT, "> $fname");
-    print OUT $container;
-
-    $counter += $reply_head->{'Content_Length'};
-
-    print "new counter = $counter\n";
-
-    my $flag = 0;
-
-    while ($flag == 0) {
-      print "while counter\n";
-      $reply_head = $self->_get_reply_head();
-      my $size = $reply_head->{'Content_Length'};
-      if ($size > 0 && $reply_head->{'MessageId'} == DOWNLOAD_DATA) {
-        my $data = $self->get_reply_data($reply_head);
-        print OUT $data;
-        $counter += $size;
-      }
-      else {
-        $flag = 1;
-      }
-
-    }
-    close(OUT);
-
-  }
-
+  my $reply_head = $self->prepare_generic_command_head(PLAY_REQ, $pkt);
+  open my($fh), $mode, $file;
+  do {
+    print $fh $self->get_reply_data($reply_head);
+    $reply_head = $self->get_reply_head();
+  } while ($reply_head->{'Content_Length'} > 0 && $reply_head->{'MessageId'} == DOWNLOAD_DATA);
+  close $fh;
 }
 
 sub cmd_log_query {
@@ -1245,7 +1137,7 @@ sub cmd_alarm_start {
     my @ready = $select->can_read(20);
     last if $!;
     if (@ready) {
-      my $reply_head = $self->_get_reply_head();
+      my $reply_head = $self->get_reply_head();
       my $out = $self->get_reply_data($reply_head);
       # trim off garbage at line ending
       $out =~ s/([\x00-\x20]*)\Z//ms;
@@ -1255,8 +1147,9 @@ sub cmd_alarm_start {
   }
 }
 
-sub cmd_monitor {
+sub _get_transcode_args {
   my ($self, $file, $seconds) = @_;
+  $file ||= 'out.h264';
   my $mode = '>';
   unless ($file =~ /\.h264$/) {
     $mode = '|-';
@@ -1267,9 +1160,71 @@ sub cmd_monitor {
       $file = "ffmpeg -loglevel panic -hide_banner -f h264 -i - -c copy -y $time '$file'";
     }
   }
+  return ($file, $mode);
+}
+
+sub cmd_monitor {
+  my ($self, $file, $seconds) = @_;
   my $res = $self->cmd_monitor_claim;
   return $res unless $res->{Ret} == 100;
-  return $self->cmd_monitor_start($file, $mode);
+  return $self->cmd_monitor_start($self->_get_transcode_args($file, $seconds));
+}
+
+sub _parse_relative_time {
+  my ($self, $ts) = @_;
+  if ($ts =~ /^\d*$/) {
+    $ts = time - $ts if $ts < 100000000;
+    my @t = localtime $ts;
+    return sprintf '%04d-%02d-%02d %02d:%02d:%02d', $t[5]+1900, $t[4]+1, $t[3], $t[2], $t[1], $t[0];
+  } else {
+    return $ts;
+  }
+}
+
+sub cmd_ls {
+  my ($self, $begin, $end) = @_;
+  $begin = $self->_parse_relative_time($begin // 3600);
+  $end = $self->_parse_relative_time($end // 0);
+  my $res = $self->cmd_file_query({
+    BeginTime      => $begin,
+    EndTime        => $end,
+    Channel        => 0,
+    # search all channels instead of single
+    #HighChannel => 0,
+    #LowChannel => 255,
+    DriverTypeMask => "0x0000FFFF",
+    Event          => "*", # * - All; A - Alarm; M - Motion Detect; R - General; H - Manual;
+    Type           => "h264", #h264 or jpg
+  });
+  return $res->{OPFileQuery};
+}
+
+sub cmd_download {
+  my ($self, $file_rec, $outname) = @_;
+  $outname ||= 'out.h264';
+  my $res = $self->cmd_playback({
+    Action    => "Claim",
+    StartTime => $file_rec->{'BeginTime'},
+    EndTime   => $file_rec->{'EndTime'},
+    Parameter => {
+      FileName  => $file_rec->{'FileName'},
+      PlayMode  => "ByName",
+      TransMode => "TCP",
+      Value     => 0
+    }
+  });
+  return $res unless $res->{Ret} == 100;
+  return $self->cmd_playback_download_start({
+    Action    => "DownloadStart",
+    StartTime => $file_rec->{'BeginTime'},
+    EndTime   => $file_rec->{'EndTime'},
+    Parameter => {
+      FileName  => $file_rec->{'FileName'},
+      PlayMode  => "ByName",
+      TransMode => "TCP",
+      Value     => 0
+    }
+  }, $self->_get_transcode_args($outname));
 }
 
 1;
