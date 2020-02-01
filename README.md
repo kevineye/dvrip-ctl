@@ -37,9 +37,17 @@ Move PTZ camera:
     dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
       ptz left 500
 
+    # save preset
+    dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
+      ptz_set_preset 0
+
     # absolute-ish (2000 ms from top, 18000ms from left)
     dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
       ptz_abs 2000 18000
+
+    # go back to preset
+    dvrip-ctl.pl -host 192.168.1.100 -pass changeme \
+      ptz_goto_preset 0
 
 List and download files:
 

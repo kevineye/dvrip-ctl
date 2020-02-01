@@ -1059,57 +1059,108 @@ sub cmd_ptz {
     $ms = 9000;
   }
   my $res = $self->cmd_ptz_control({
-    "Command" =>      $direction,
-    "Parameter" =>    {
-      "AUX" =>  {
-        "Number" =>       0,
-        "Status" =>       "On"
+    "Command"   => $direction,
+    "Parameter" => {
+      "AUX"      => {
+        "Number" => 0,
+        "Status" => "On"
       },
-      "Channel" =>      0,
-      "MenuOpts" =>     "Enter",
-      "POINT" =>        {
-        "bottom" =>       0,
-        "left" => 0,
-        "right" =>        0,
-        "top" =>  0
+      "Channel"  => 0,
+      "MenuOpts" => "Enter",
+      "POINT"    => {
+        "bottom" => 0,
+        "left"   => 0,
+        "right"  => 0,
+        "top"    => 0
       },
-      "Pattern" =>      "SetBegin",
-      "Preset" =>       65535,
-      "Step" => 8,
-      "Tour" => 0,
+      "Pattern"  => "SetBegin",
+      "Preset"   => 65535,
+      "Step"     => 8,
+      "Tour"     => 0,
     }
   });
   return $res unless $res->{Ret} == 100;
-  usleep($ms*1000);
+  usleep($ms * 1000);
   $res = $self->cmd_ptz_control({
-    "Command" =>      $direction,
-    "Parameter" =>    {
-      "AUX" =>  {
-        "Number" =>       0,
-        "Status" =>       "On"
+    "Command"   => $direction,
+    "Parameter" => {
+      "AUX"      => {
+        "Number" => 0,
+        "Status" => "On"
       },
-      "Channel" =>      0,
-      "MenuOpts" =>     "Enter",
-      "POINT" =>        {
-        "bottom" =>       0,
-        "left" => 0,
-        "right" =>        0,
-        "top" =>  0
+      "Channel"  => 0,
+      "MenuOpts" => "Enter",
+      "POINT"    => {
+        "bottom" => 0,
+        "left"   => 0,
+        "right"  => 0,
+        "top"    => 0
       },
-      "Pattern" =>      "SetBegin",
-      "Preset" =>       -1,
-      "Step" => 8,
-      "Tour" => 0,
+      "Pattern"  => "SetBegin",
+      "Preset"   => -1,
+      "Step"     => 8,
+      "Tour"     => 0,
     }
   });
   if ($remainder > 0 && $res->{Ret} == 100) {
     return $self->cmd_ptz($direction, $remainder);
-  } else {
+  }
+  else {
     return $res;
   }
 }
 
-sub cmd_ptz_preset {
+sub cmd_ptz_set_preset {
+  my ($self, $preset) = @_;
+  return $self->cmd_ptz_control({
+    "Command"   => "SetPreset",
+    "Parameter" => {
+      "AUX"      => {
+        "Number" => 0,
+        "Status" => "On"
+      },
+      "Channel"  => 0,
+      "MenuOpts" => "Enter",
+      "POINT"    => {
+        "bottom" => 0,
+        "left"   => 0,
+        "right"  => 0,
+        "top"    => 0
+      },
+      "Pattern"  => "Start",
+      "Preset"   => $preset + 0 // 0,
+      "Step"     => 10,
+      "Tour"     => 0,
+    }
+  });
+}
+
+sub cmd_ptz_goto_preset {
+  my ($self, $preset) = @_;
+  return $self->cmd_ptz_control({
+    "Command"   => "GotoPreset",
+    "Parameter" => {
+      "AUX"      => {
+        "Number" => 0,
+        "Status" => "On"
+      },
+      "Channel"  => 0,
+      "MenuOpts" => "Enter",
+      "POINT"    => {
+        "bottom" => 0,
+        "left"   => 0,
+        "right"  => 0,
+        "top"    => 0
+      },
+      "Pattern"  => "Start",
+      "Preset"   => $preset + 0 // 0,
+      "Step"     => 10,
+      "Tour"     => 0,
+    }
+  });
+}
+
+sub cmd_ptz_abs {
   my $self = shift;
   $self->cmd_ptz(up => 5000);
   $self->cmd_ptz(left => 27000);

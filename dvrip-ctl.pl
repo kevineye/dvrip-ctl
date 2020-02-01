@@ -52,7 +52,9 @@ Commands:
   set_time                <nortc>
   export_config           <filename.tar.gz>
   ptz                     <up|down|left|right> <ms>
-  ptz_preset              <x_ms> <y_ms>
+  ptz_set_preset          <num>
+  ptz_goto_preset         <num>
+  ptz_abs                 <x_ms> <y_ms>
   config_get              General
                           AppDowloadLink
                           AVEnc
