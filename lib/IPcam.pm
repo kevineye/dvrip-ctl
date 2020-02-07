@@ -1,17 +1,25 @@
 package IPcam;
-use strict;
-use warnings;
+use Mojo::Base -base, -strict, -signatures, -async_await;
 
 # initially from https://github.com/667bdrm/sofiactl
 
-use Data::Dumper;
 use Digest::MD5 qw(md5 md5_hex);
 use IO::Select;
 use IO::Socket::INET;
 use IO::Socket;
-use JSON;
+use Mojo::JSON qw(encode_json decode_json);
 use Time::Local;
 use Time::HiRes qw(usleep);
+
+has client => sub {Mojo::IOLoop::Client->new};
+has host => undef;
+has port => 34567;
+has user => 'admin';
+has password => undef;
+has sid => 0;
+has sequence => 0;
+has debug => 0;
+has hashtype => 'md5based';
 
 use constant {
   LOGIN_REQ1                     => 999,
@@ -226,98 +234,32 @@ use constant {
   }
 };
 
-sub new {
-  my $classname = shift;
-  my $self = {};
-  bless($self, $classname);
-  $self->_init(@_);
-  return $self;
-}
-
-sub disconnect {
-  my $self = shift;
-  $self->{socket}->close();
-}
-
-sub _init {
-  my $self = shift;
-  $self->{host} = "";
-  $self->{port} = 34567;
-  $self->{user} = "admin";
-  $self->{password} = "";
-  $self->{socket} = undef;
-  $self->{sid} = 0;
-  $self->{sequence} = 0;
-  $self->{SystemInfo} = undef;
-  $self->{GenericInfo} = undef;
-  $self->{lastcommand} = undef;
-  $self->{hashtype} = 'md5based';
-  $self->{debug} = 0;
-  $self->{channel} = 0;
-  $self->{begin_time} = '';
-  $self->{end_time} = '';
-  $self->{raw_data} = '';
-
-  while (@_) {
-    my ($k, $v) = (shift, shift);
-    $self->{$k} = $v if defined $v;
-  }
-
+sub new($class, @opts) {
+  my $self = $class->SUPER::new(@opts);
+  # $self->client->connect(address => $self->host, port => $self->port)
+  #   or die "Cannot connect to camera at ${\$self->host}:${\$self->port}\n";
   $self->{socket} ||= IO::Socket::INET->new(
-    PeerAddr => $self->{host},
-    PeerPort => $self->{port},
+    PeerAddr => $self->host,
+    PeerPort => $self->port,
     Proto    => 'tcp',
     Timeout  => 10000,
     Type     => SOCK_STREAM,
     Blocking => 1
   ) or die "Cannot connect to camera at $self->{host}:$self->{port}\n";
-
+  return $self;
 }
 
-sub get_device_runtime {
-  my $self = shift;
-
-  $self->get_system_info();
-
-  my $total_minutes = hex($self->{SystemInfo}->{DeviceRunTime});
-  my $total_hours = $total_minutes / 60;
-  my $total_days = $total_minutes / (60 * 24);
-  my $left_minutes = $total_minutes % (60 * 24);
-  my $hours = int($left_minutes / 60);
-  my $minutes = int($left_minutes % 60);
-  my $years = $total_days / 365;
-  my $left_days = $total_days % 365;
-  my $months = int($left_days / 30);
-  my $days = $left_days % 30;
-
-  $total_minutes -= $months * 24 * 60;
-
-  $total_hours = int($total_hours);
-  $total_days = int($total_days);
-
-  return sprintf(
-    "%d day(s): %d year(s), %d month(s), %d day(s), %d hour(s), %d minute(s)",
-    $total_days, $years, $months, $days, $hours, $minutes);
+sub _build_packet_sid($self) {
+  return $self->_format_hex($self->sid);
 }
 
-sub _build_packet_sid {
-  my $self = shift;
-  return $self->_format_hex($self->{sid});
-}
-
-sub _format_hex {
-  my $self = shift;
-  my $value = $_[0];
+sub _format_hex($self, $value) {
   return sprintf("0x%08x", $value);
 }
 
-sub build_packet {
-  my $self = shift;
-  my ($type, $params) = @_;
-
+sub build_packet($self, $type, $params) {
   my @pkt_prefix_1;
   my $pkt_type;
-  my $json = JSON->new;
 
   @pkt_prefix_1 = (0xff, 0x00, 0x00, 0x00); # (head_flag, version (was 0x01), reserved01, reserved02)
   my $pkt_prefix_2 = 0x00;                  # (total_packets, cur_packet)
@@ -344,14 +286,14 @@ sub build_packet {
 
   my $pkt_prefix_data =
     pack('C*', @pkt_prefix_1)
-      . pack('i', $self->{sid})
-      . pack('i', $self->{sequence})
+      . pack('i', $self->sid)
+      . pack('i', $self->sequence)
       . $msgid;
 
   my $pkt_params_data = '';
 
   if (defined $params) {
-    $pkt_params_data = $json->encode($params);
+    $pkt_params_data = encode_json $params;
   }
 
   $pkt_params_data .= pack('C', 0x0a);
@@ -362,22 +304,17 @@ sub build_packet {
       . $pkt_params_data;
 
   $params->{Name} ||= '';
-  $self->{lastcommand} = $params->{Name} . sprintf(" msgid = %d", $pkt_type);
-  $self->{sequence} += 1;
+  $self->sequence($self->sequence + 1);
 
   return $pkt_data;
 }
 
-sub get_reply_head {
-
-  my $self = shift;
-
+sub get_reply_head($self) {
   my $data;
-
   my @reply_head_array;
 
   # head_flag, version, reserved
-  $self->{socket}->recv($data, 4);
+  $self->{socket}->recv($data, 4); # TODO
 
   my @header = unpack('C*', $data);
 
@@ -385,13 +322,13 @@ sub get_reply_head {
     (@header)[ 0, 1, 2, 3 ];
 
   # int sid, int seq
-  $self->{socket}->recv($data, 8);
+  $self->{socket}->recv($data, 8); # TODO
 
   my ($sid, $seq) = unpack('i*', $data);
 
   $reply_head_array[3] = ();
 
-  $self->{socket}->recv($data, 8);
+  $self->{socket}->recv($data, 8); # TODO
   my ($channel, $endflag, $msgid, $size) = unpack('CCSI', $data);
 
   my $reply_head = {
@@ -404,28 +341,16 @@ sub get_reply_head {
     EndFlag        => $endflag,
   };
 
-  $self->{sid} = $sid;
-
-  if ($self->{debug} ne 0) {
-    printf(
-      "reply: head_flag=%x version=%d session=0x%x sequence=%d channel=%d end_flag=%d msgid=%d size = %d lastcommand = %s\n",
-      $head_flag, $version, $sid,
-      $seq, $channel, $endflag,
-      $msgid, $size, $self->{lastcommand}
-    );
-  }
+  $self->sid($sid);
   return $reply_head;
 }
 
-sub get_reply_data {
-  my $self = shift;
-  my $reply = $_[0];
-
+sub get_reply_data($self, $reply) {
   my $length = $reply->{'Content_Length'};
   my $out;
 
   do {
-    $self->{socket}->recv(my $data, $length) // die "recv: $!";
+    $self->{socket}->recv(my $data, $length) // die "recv: $!"; # TODO
     $length -= length $data;
     $out .= $data;
   } while ($length > 0);
@@ -433,68 +358,7 @@ sub get_reply_data {
   return $out;
 }
 
-sub get_system_info {
-  my $self = shift;
-
-  if (not defined $self->{SystemInfo}) {
-    $self->cmd_system_info();
-  }
-
-  return $self->{SystemInfo};
-}
-
-sub get_version_info {
-  my $self = shift;
-
-  my $versionstr = $_[0];
-
-  $versionstr =~ /V(\d+)\.(\d{2})\.([A-Z][0-9]+)\.(\d{8})\.(\d{5})/;
-
-  my $platform = {
-    0 => "TI",
-    1 => "Hisilicon 16M",
-    2 => "Hisilicon 8M (S38)",
-    3 => "TI (_S models)",
-    4 => "Ambarella",
-    5 => "Hisilicon 16M",
-    6 => "Hisilicon 9M (Hi3518E)",
-  };
-
-  my $ver = {
-    major         => $1,
-    minor         => int($2),
-    release       => $3,
-    oeminfo       => $4,
-    build_options => $5,
-  };
-
-  $ver->{oeminfo} =~ /^(\d{3})(\d{2})(\d{3})/;
-
-  $ver->{oem_manufacturer_id} = $1;
-  $ver->{platform_id} = int($2);
-  $ver->{build_number} = int($3);
-
-  $ver->{build_options} =~ /^(\d)(\d)(\d)(\d)(\d)/;
-
-  $ver->{cloud_service} = $1;
-  $ver->{basic_video_analytics} = $2;
-  $ver->{advanced_video_analytics} = $3;
-  $ver->{onvif_server_ipc} = $4;
-  $ver->{onvif_client_nvr} = $5;
-
-  my $platform_id = $ver->{platform_id};
-
-  $ver->{platform} = $platform->{$platform_id};
-
-  return %$ver;
-}
-
-sub prepare_generic_command_head {
-
-  my $self = shift;
-  my $msgid = $_[0];
-  my $parameters = $_[1];
-
+sub prepare_generic_command_head($self, $msgid, $parameters) {
   my $pkt = $parameters;
 
   if ($msgid ne LOGIN_REQ2 and defined $parameters) {
@@ -502,27 +366,21 @@ sub prepare_generic_command_head {
   }
 
   if ($msgid eq MONITOR_REQ) {
-    $parameters->{SessionID} = sprintf("0x%02X", $self->{sid});
+    $parameters->{SessionID} = sprintf("0x%02X", $self->sid);
   }
 
   my $cmd_data = $self->build_packet($msgid, $pkt);
 
-  $self->{socket}->send($cmd_data);
+  $self->{socket}->send($cmd_data); # TODO
   my $reply_head = $self->get_reply_head();
   return $reply_head;
 }
 
-sub prepare_generic_command {
-
-  my $self = shift;
-  my $msgid = $_[0];
-  my $parameters = $_[1];
-
+sub prepare_generic_command($self, $msgid, $parameters) {
   my $reply_head = $self->prepare_generic_command_head($msgid, $parameters);
   my $out = $self->get_reply_data($reply_head);
 
   if ($out) {
-    $self->{raw_data} = $out;
     my $json;
     # trim off garbage at line ending
     $out =~ s/([\x00-\x20]*)\Z//ms;
@@ -545,42 +403,32 @@ sub prepare_generic_command {
     }
 
     return $json;
-
   }
-
   return undef;
 }
 
-sub prepare_generic_file_download_command {
-  my $self = shift;
-  my $msgid = $_[0];
-  my $parameters = $_[1];
-  my $file = $_[2];
-
+sub prepare_generic_file_download_command($self, $msgid, $parameters, $file) {
   my $reply_head = $self->prepare_generic_command_head($msgid, $parameters);
   my $out = $self->get_reply_data($reply_head);
 
-  open(OUT, ">$file");
-  print OUT $out;
-  close(OUT);
+  open(my $fh, ">$file");
+  print $fh $out;
+  close $fh;
 
   return 1;
 }
 
-sub _md5_hash {
-  my $self = shift;
-  my $message = $_[0];
+sub _md5_hash($self, $message) {
   my $hash = '';
-
   my $msg_md5 = md5($message);
 
-  if ($self->{debug} ne 0) {
+  if ($self->debug != 0) {
     print md5_hex($message) . "\n";
   }
 
   my @hash = unpack('C*', $msg_md5);
 
-  if ($self->{debug} ne 0) {
+  if ($self->debug != 0) {
     for my $chr (@hash) {
       print sprintf("%02x ", $chr);
     }
@@ -603,79 +451,59 @@ sub _md5_hash {
       $n += 0x30;
     }
 
-    if ($self->{debug} ne 0) {
+    if ($self->debug != 0) {
       print "$n\n";
     }
 
     $hash .= chr($n);
   }
 
-  if ($self->{debug} ne 0) {
+  if ($self->debug != 0) {
     print "hash = $hash\n";
   }
 
   return $hash;
 }
 
-sub _plain_hash {
-  my $self = shift;
-  my $message = $_[0];
+sub _plain_hash($self, $message) {
   return $message;
 }
 
-sub _make_hash {
-  my $self = shift;
-  my $message = $_[0];
-
-  if ($self->{hashtype} eq 'md5based') {
+sub _make_hash($self, $message) {
+  if ($self->hashtype eq 'md5based') {
     return $self->_md5_hash($message);
-  } else {
+  }
+  else {
     return $self->_plain_hash($message);
   }
 }
 
-sub cmd_login {
-  my $self = shift;
-
+sub cmd_login($self) {
   my $pkt = {
     EncryptType => "MD5",
     LoginType   => "DVRIP-Web",
-    PassWord    => $self->_make_hash($self->{password}),
-    UserName    => $self->{user}
-
+    PassWord    => $self->_make_hash($self->password),
+    UserName    => $self->user
   };
   my $reply_json = $self->prepare_generic_command(LOGIN_REQ2, $pkt);
-
-  $self->{GenericInfo} = $reply_json;
-
   return $reply_json;
 }
 
-sub cmd_system_info {
-  my $self = shift;
-
+sub cmd_system_info($self) {
   my $pkt = { Name => 'SystemInfo', };
-
   my $systeminfo = $self->prepare_generic_command(SYSINFO_REQ, $pkt);
-  $self->{SystemInfo} = $systeminfo->{SystemInfo};
   return $systeminfo;
 }
 
-sub cmd_alarm_info {
-  my $self = shift;
-  my $parameters = $_[0];
-
+sub cmd_alarm_info($self, $parameters) {
   my $pkt = {
     Name      => 'AlarmInfo',
     AlarmInfo => $parameters,
   };
-
   return $self->prepare_generic_command(ALARM_REQ, $pkt);
 }
 
-sub cmd_net_alarm {
-  my $self = shift;
-
+sub cmd_net_alarm($self) {
   my $pkt = {
     Name         => 'OPNetAlarm',
     NetAlarmInfo => {
@@ -683,14 +511,10 @@ sub cmd_net_alarm {
       State => 1,
     },
   };
-
   return $self->prepare_generic_command(NET_ALARM_REQ, $pkt);
 }
 
-sub cmd_alarm_center_message {
-  my $self = shift;
-  my $data;
-
+sub cmd_alarm_center_message($self) {
   my $pkt = {
     Name              => 'NetAlarmCenter',
     NetAlarmCenterMsg => {
@@ -707,7 +531,7 @@ sub cmd_alarm_center_message {
 
   my $cmd_data = $self->build_packet(ALARMCENTER_MSG_REQ, $pkt);
 
-  $self->{socket}->send($cmd_data);
+  $self->{socket}->send($cmd_data); # TODO
   my $reply_head = $self->get_reply_head();
   my $out = $self->get_reply_data($reply_head);
   # trim off garbage at line ending
@@ -715,81 +539,48 @@ sub cmd_alarm_center_message {
   return decode_json($out);
 }
 
-sub cmd_net_keyboard {
-  my $self = shift;
-  my $parameters = $_[0];
-
+sub cmd_net_keyboard($self, $parameters) {
   my $pkt = {
     Name          => 'OPNetKeyboard',
     OPNetKeyboard => $parameters,
   };
-
   return $self->prepare_generic_command(NET_KEYBOARD_REQ, $pkt);
 }
 
-sub cmd_users {
-  my $self = shift;
-
-  my $pkt = {
-
-  };
-
-  return $self->prepare_generic_command(USERS_GET, $pkt);
+sub cmd_users($self) {
+  return $self->prepare_generic_command(USERS_GET, {});
 }
 
-sub cmd_groups {
-  my $self = shift;
-
-  my $pkt = {
-
-  };
-
-  return $self->prepare_generic_command(GROUPS_GET, $pkt);
+sub cmd_groups($self) {
+  return $self->prepare_generic_command(GROUPS_GET, {});
 }
 
-sub cmd_storage_info {
-  my $self = shift;
-
-  my $pkt = { Name => 'StorageInfo', };
-
+sub cmd_storage_info($self) {
+  my $pkt = { Name => 'StorageInfo' };
   return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_work_state {
-  my $self = shift;
-
+sub cmd_work_state($self) {
   my $pkt = { Name => 'WorkState', };
-
   return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_snap {
-  my $self = shift;
-
-  my $pkt = { Name => 'OPSNAP', };
-
-  return $self->prepare_generic_file_download_command(NET_SNAP_REQ, $pkt, shift);
+sub cmd_snap($self, $out) {
+  my $pkt = { Name => 'OPSNAP' };
+  return $self->prepare_generic_file_download_command(NET_SNAP_REQ, $pkt, $out);
 }
 
-sub cmd_empty {
-  my $self = shift;
-
-  my $pkt = { Name => '', };
-
+sub cmd_empty($self) {
+  my $pkt = { Name => '' };
   return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_keepalive {
-  my $self = shift;
-
-  my $pkt = { Name => 'KeepAlive', };
-
+sub cmd_keepalive($self) {
+  my $pkt = { Name => 'KeepAlive' };
   return $self->prepare_generic_command(KEEPALIVE_REQ, $pkt);
 }
 
-sub cmd_monitor_claim {
-  my $self = shift;
-
+sub cmd_monitor_claim($self) {
   my $pkt = {
     Name      => 'OPMonitor',
     OPMonitor => {
@@ -802,14 +593,10 @@ sub cmd_monitor_claim {
       }
     }
   };
-
-  my $res = $self->prepare_generic_command(MONITOR_CLAIM, $pkt);
-  return $res;
+  return $self->prepare_generic_command(MONITOR_CLAIM, $pkt);
 }
 
-sub cmd_monitor_stop {
-  my $self = shift;
-
+sub cmd_monitor_stop($self) {
   my $pkt = {
     Name      => 'OPMonitor',
     SessionID => $self->_build_packet_sid(),
@@ -823,9 +610,8 @@ sub cmd_monitor_stop {
       }
     }
   };
-
   my $cmd_data = $self->build_packet(MONITOR_REQ, $pkt);
-  $self->{socket}->send($cmd_data);
+  $self->{socket}->send($cmd_data); # TODO
 
   my $reply = $self->get_reply_head();
 
@@ -838,15 +624,11 @@ sub cmd_monitor_stop {
   $out =~ s/([\x00-\x20]*)\Z//ms;
   my $out1 = decode_json($out);
 
-  # $self->{socket}->recv($data, 1);
-
   return $out1;
 }
 
-sub cmd_monitor_start {
-  my $self = shift;
-  my $file = shift;
-  my $mode = shift || '>';
+sub cmd_monitor_start($self, $file, $mode) {
+  $mode ||= '>';
 
   my $pkt = {
     Name      => 'OPMonitor',
@@ -863,9 +645,9 @@ sub cmd_monitor_start {
   };
 
   my $cmd_data = $self->build_packet(MONITOR_REQ, $pkt);
-  $self->{socket}->send($cmd_data);
+  $self->{socket}->send($cmd_data); # TODO
 
-  open my($fh), $mode, $file;
+  open my ($fh), $mode, $file;
 
   my $stop = 0;
   while (defined(my $reply = $self->get_reply_head()) and $stop == 0) {
@@ -876,10 +658,7 @@ sub cmd_monitor_start {
   return 1;
 }
 
-sub cmd_set_time {
-  my $self = shift;
-  my $nortc = $_[0];
-
+sub cmd_set_time($self, $nortc) {
   my ($sec, $min, $hour, $mday, $mon, $year) = localtime();
 
   my $clock_cmd = 'OPTimeSetting';
@@ -903,7 +682,7 @@ sub cmd_set_time {
 
   my $cmd_data = $self->build_packet($pkt_type, $pkt);
 
-  $self->{socket}->send($cmd_data);
+  $self->{socket}->send($cmd_data); # TODO
   my $reply = $self->get_reply_head();
   my $out = $self->get_reply_data($reply);
 
@@ -916,56 +695,40 @@ sub cmd_set_time {
   return undef;
 }
 
-sub cmd_system_function {
-  my $self = shift;
-
-  my $pkt = { Name => 'SystemFunction', };
-
+sub cmd_system_function($self) {
+  my $pkt = { Name => 'SystemFunction' };
   return $self->prepare_generic_command(ABILITY_REQ, $pkt);
 }
 
-sub cmd_file_query {
-  my $self = shift;
-  my $parameters = $_[0];
-
+sub cmd_file_query($self, $parameters) {
   my $pkt = {
     Name        => 'OPFileQuery',
     OPFileQuery => $parameters,
-
   };
-
   return $self->prepare_generic_command(FILESEARCH_REQ, $pkt);
 }
 
-sub cmd_oem_info {
-  my $self = shift;
-
-  my $pkt = { Name => 'OEMInfo', };
-
+sub cmd_oem_info($self) {
+  my $pkt = { Name => 'OEMInfo' };
   return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_playback {
-  my ($self, $parameters) = @_;
-
+sub cmd_playback($self, $parameters) {
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
-
   return $self->prepare_generic_command(PLAY_CLAIM, $pkt);
 }
 
-sub cmd_playback_download_start {
-  my ($self, $parameters, $file, $mode) = @_;
-
+sub cmd_playback_download_start($self, $parameters, $file, $mode) {
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
 
   my $reply_head = $self->prepare_generic_command_head(PLAY_REQ, $pkt);
-  open my($fh), $mode, $file;
+  open my ($fh), $mode, $file;
   do {
     print $fh $self->get_reply_data($reply_head);
     $reply_head = $self->get_reply_head();
@@ -973,86 +736,52 @@ sub cmd_playback_download_start {
   close $fh;
 }
 
-sub cmd_log_query {
-  my $self = shift;
-  my $parameters = $_[0];
-
+sub cmd_log_query($self, $parameters) {
   my $pkt = {
     Name       => 'OPLogQuery',
-
     OPLogQuery => $parameters,
   };
-
   return $self->prepare_generic_command(LOGSEARCH_REQ, $pkt);
 }
 
-sub cmd_export_log {
-  my $self = shift;
-  my $file = $_[0];
-
-  my $pkt = { Name => '', };
-
+sub cmd_export_log($self, $file) {
+  my $pkt = { Name => '' };
   return $self->prepare_generic_file_download_command(LOG_EXPORT_REQ, $pkt, $file);
 }
 
-sub cmd_export_config {
-  my $self = shift;
-  my $file = $_[0];
-
-  my $pkt = { Name => '', };
-
+sub cmd_export_config($self, $file) {
+  my $pkt = { Name => '' };
   return $self->prepare_generic_file_download_command(CONFIG_EXPORT_REQ, $pkt, $file);
 }
 
-sub cmd_storage_manager {
-  my $self = shift;
-  my $data;
-
-  my $parameters = $_[0];
-
+sub cmd_storage_manager($self, $parameters) {
   my $pkt = {
-    Name               => 'OPStorageManager',
-    'OPStorageManager' => $parameters,
-    SessionID          => $self->_build_packet_sid(),
+    Name             => 'OPStorageManager',
+    OPStorageManager => $parameters,
+    SessionID        => $self->_build_packet_sid(),
   };
-
   return $self->prepare_generic_command(DISKMANAGER_REQ, $pkt);
 }
 
-sub cmd_config_get {
-  my $self = shift;
-  my $parameters = $_[0];
-
-  my $pkt = { Name => $parameters, };
-
+sub cmd_config_get($self, $parameters) {
+  my $pkt = { Name => $parameters };
   return $self->prepare_generic_command(CONFIG_GET, $pkt);
 }
 
-sub cmd_config_set {
-  my $self = shift;
-  my $name = shift;
-  my $value = shift;
-
+sub cmd_config_set($self, $name, $value) {
   my $pkt = { Name => $name, $name => $value };
-
   return $self->prepare_generic_command(CONFIG_SET, $pkt);
 }
 
-
-sub cmd_ptz_control {
-  my $self = shift;
-  my $parameters = $_[0];
-
+sub cmd_ptz_control($self, $parameters) {
   my $pkt = { Name => 'OPPTZControl', OPPTZControl => $parameters };
-
   return $self->prepare_generic_command(PTZ_REQ, $pkt);
 }
 
-sub cmd_ptz {
-  my $self = shift;
-  my $direction = shift || 'left';
+sub cmd_ptz($self, $direction, $ms) {
+  $direction ||= 'left';
   $direction = "Direction" . ucfirst(lc($direction)) unless $direction =~ /^[A-Z]/;
-  my $ms = shift || 500;
+  $ms ||= 500;
   my $remainder = 0;
   if ($ms > 9000) {
     $remainder = $ms - 9000;
@@ -1110,8 +839,7 @@ sub cmd_ptz {
   }
 }
 
-sub cmd_ptz_set_preset {
-  my ($self, $preset) = @_;
+sub cmd_ptz_set_preset($self, $preset) {
   return $self->cmd_ptz_control({
     "Command"   => "SetPreset",
     "Parameter" => {
@@ -1135,8 +863,7 @@ sub cmd_ptz_set_preset {
   });
 }
 
-sub cmd_ptz_goto_preset {
-  my ($self, $preset) = @_;
+sub cmd_ptz_goto_preset($self, $preset) {
   return $self->cmd_ptz_control({
     "Command"   => "GotoPreset",
     "Parameter" => {
@@ -1160,17 +887,15 @@ sub cmd_ptz_goto_preset {
   });
 }
 
-sub cmd_ptz_abs {
-  my $self = shift;
+sub cmd_ptz_abs($self, $x, $y) {
   $self->cmd_ptz(up => 5000);
   $self->cmd_ptz(left => 27000);
-  $self->cmd_ptz(right => shift || 0);
-  $self->cmd_ptz(down => shift || 0);
+  $self->cmd_ptz(right => $x || 0);
+  $self->cmd_ptz(down => $y || 0);
 }
 
-sub cmd_alarm_start {
-  my $self = shift;
-  my $cb = shift || sub { print encode_json($_[1])."\n" };
+sub cmd_alarm_start($self, $cb) {
+  $cb ||= sub {print encode_json($_[1]) . "\n"};
 
   my $pkt = {
     Name      => '',
@@ -1185,7 +910,7 @@ sub cmd_alarm_start {
   $select->add($self->{socket});
   while (1) {
     $! = 0;
-    my @ready = $select->can_read(20);
+    my @ready = $select->can_read(20); # TODO
     last if $!;
     if (@ready) {
       my $reply_head = $self->get_reply_head();
@@ -1198,42 +923,40 @@ sub cmd_alarm_start {
   }
 }
 
-sub _get_transcode_args {
-  my ($self, $file, $seconds) = @_;
+sub _get_transcode_args($self, $file, $seconds) {
   $file ||= 'out.h264';
   my $mode = '>';
   unless ($file =~ /\.h264$/) {
     $mode = '|-';
     if ($file =~ /\.jpe?g|\.png/) {
       $file = "ffmpeg -loglevel panic -hide_banner -f h264 -i - -frames:v 1 -y '$file'";
-    } else {
+    }
+    else {
       my $time = $seconds ? "-t $seconds " : "";
       $file = "ffmpeg -loglevel panic -hide_banner -f h264 -i - -c copy -y $time '$file'";
     }
   }
-  return ($file, $mode);
+  return($file, $mode);
 }
 
-sub cmd_monitor {
-  my ($self, $file, $seconds) = @_;
+sub cmd_monitor($self, $file, $seconds) {
   my $res = $self->cmd_monitor_claim;
   return $res unless $res->{Ret} == 100;
   return $self->cmd_monitor_start($self->_get_transcode_args($file, $seconds));
 }
 
-sub _parse_relative_time {
-  my ($self, $ts) = @_;
+sub _parse_relative_time($self, $ts) {
   if ($ts =~ /^\d*$/) {
     $ts = time - $ts if $ts < 100000000;
     my @t = localtime $ts;
-    return sprintf '%04d-%02d-%02d %02d:%02d:%02d', $t[5]+1900, $t[4]+1, $t[3], $t[2], $t[1], $t[0];
-  } else {
+    return sprintf '%04d-%02d-%02d %02d:%02d:%02d', $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0];
+  }
+  else {
     return $ts;
   }
 }
 
-sub cmd_ls {
-  my ($self, $begin, $end) = @_;
+sub cmd_ls($self, $begin, $end) {
   $begin = $self->_parse_relative_time($begin // 3600);
   $end = $self->_parse_relative_time($end // 0);
   my $res = $self->cmd_file_query({
@@ -1244,14 +967,13 @@ sub cmd_ls {
     #HighChannel => 0,
     #LowChannel => 255,
     DriverTypeMask => "0x0000FFFF",
-    Event          => "*", # * - All; A - Alarm; M - Motion Detect; R - General; H - Manual;
+    Event          => "*",    # * - All; A - Alarm; M - Motion Detect; R - General; H - Manual;
     Type           => "h264", #h264 or jpg
   });
   return $res->{OPFileQuery};
 }
 
-sub cmd_download {
-  my ($self, $file_rec, $outname) = @_;
+sub cmd_download($self, $file_rec, $outname) {
   $outname ||= 'out.h264';
   my $res = $self->cmd_playback({
     Action    => "Claim",

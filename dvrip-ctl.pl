@@ -85,13 +85,13 @@ Commands:
 USAGE
 }
 
-my $cam = IPcam->new(
-  host     => $host,
-  port     => $port,
-  user     => $user,
-  password => $pass,
-  debug    => $debug,
-);
+my @a = ();
+push @a, host => $host if defined $host;
+push @a, port => $port if defined $port;
+push @a, user => $user if defined $user;
+push @a, password => $pass if defined $pass;
+push @a, debug => $debug if defined $debug;
+my $cam = IPcam->new(@a);
 
 $| = 1;
 
