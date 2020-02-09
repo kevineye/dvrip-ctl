@@ -11,6 +11,7 @@ RUN apk --no-cache add \
       perl-io-socket-ssl \
       perl-json \
       perl-module-build \
+      tzdata \
  && cpanm --no-wget --installdeps /tmp \
  && apk --no-cache del \
       gcc \

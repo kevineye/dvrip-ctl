@@ -1,17 +1,15 @@
 package IPcam;
-use Mojo::Base -base, -strict, -signatures, -async_await;
+use Mojo::Base 'Mojo::EventEmitter', -strict, -signatures, -async_await;
 
 # initially from https://github.com/667bdrm/sofiactl
 
 use Digest::MD5 qw(md5 md5_hex);
-use IO::Select;
-use IO::Socket::INET;
-use IO::Socket;
 use Mojo::JSON qw(encode_json decode_json);
+use Mojo::Promise;
 use Time::Local;
 use Time::HiRes qw(usleep);
 
-has client => sub {Mojo::IOLoop::Client->new};
+has stream => undef;
 has host => undef;
 has port => 34567;
 has user => 'admin';
@@ -234,27 +232,64 @@ use constant {
   }
 };
 
-sub new($class, @opts) {
-  my $self = $class->SUPER::new(@opts);
-  # $self->client->connect(address => $self->host, port => $self->port)
-  #   or die "Cannot connect to camera at ${\$self->host}:${\$self->port}\n";
-  $self->{socket} ||= IO::Socket::INET->new(
-    PeerAddr => $self->host,
-    PeerPort => $self->port,
-    Proto    => 'tcp',
-    Timeout  => 10000,
-    Type     => SOCK_STREAM,
-    Blocking => 1
-  ) or die "Cannot connect to camera at $self->{host}:$self->{port}\n";
-  return $self;
+async sub connect($self) {
+  $self->{buffer} = '';
+  $self->{recv_header} = undef;
+
+  my $p = Mojo::Promise->new;
+  Mojo::IOLoop->client(address => $self->host, port => $self->port, sub($, $err, $stream) {
+    if ($err) {
+      $p->reject("Cannot connect to camera at ${\$self->host}:${\$self->port}: $err\n");
+    } else {
+      $self->stream($stream);
+      $stream->on(error => sub {$self->stream_error($_[1])});
+      $stream->on(read => sub {$self->stream_read($_[1])});
+      $stream->on(close => sub {$self->stream_close});
+      $p->resolve($self);
+    }
+  });
+  return $p;
+}
+
+sub stream_read($self, $bytes) {
+  $self->{buffer} .= $bytes;
+  while (1) {
+    if ($self->{recv_header} && length $self->{buffer} >= $self->{recv_header}->{Content_Length}) {
+      my $header = $self->{recv_header};
+      my $data = substr $self->{buffer}, 0, $header->{Content_Length};
+      $self->{recv_header} = undef;
+      substr($self->{buffer}, 0, $header->{Content_Length}) = '';
+      if ($self->debug) {
+        warn "<== received complete packet with $header->{Content_Length} bytes of data\n";
+      }
+      $self->emit(packet => ($data, $header));
+    }
+    elsif (!$self->{recv_header} && length $self->{buffer} >= 20) {
+      $self->{recv_header} = $self->decode_head(substr $self->{buffer}, 0, 20);
+      substr($self->{buffer}, 0, 20) = '';
+      if ($self->debug) {
+        warn "<== received complete header: " . encode_json($self->{recv_header}) . "\n";
+      }
+    }
+    else {
+      if ($self->debug && length $self->{buffer} > 0) {
+        warn "<-- buffered ${\length $self->{buffer}} bytes, but waiting for more...\n";
+      }
+      last;
+    }
+  }
+}
+
+sub stream_close($) {
+  die "connection closed\n";
+}
+
+sub stream_error($, $err) {
+  die "connection error: $err\n";
 }
 
 sub _build_packet_sid($self) {
-  return $self->_format_hex($self->sid);
-}
-
-sub _format_hex($self, $value) {
-  return sprintf("0x%08x", $value);
+  return sprintf("0x%08x", $self->sid);
 }
 
 sub build_packet($self, $type, $params) {
@@ -309,136 +344,113 @@ sub build_packet($self, $type, $params) {
   return $pkt_data;
 }
 
-sub get_reply_head($self) {
-  my $data;
-  my @reply_head_array;
-
-  # head_flag, version, reserved
-  $self->{socket}->recv($data, 4); # TODO
-
-  my @header = unpack('C*', $data);
-
-  my ($head_flag, $version, $reserved01, $reserved02) =
-    (@header)[ 0, 1, 2, 3 ];
-
-  # int sid, int seq
-  $self->{socket}->recv($data, 8); # TODO
-
-  my ($sid, $seq) = unpack('i*', $data);
-
-  $reply_head_array[3] = ();
-
-  $self->{socket}->recv($data, 8); # TODO
-  my ($channel, $endflag, $msgid, $size) = unpack('CCSI', $data);
-
-  my $reply_head = {
-    Version        => $version,
-    SessionID      => $sid,
-    Sequence       => $seq,
-    MessageId      => $msgid,
-    Content_Length => $size,
-    Channel        => $channel,
-    EndFlag        => $endflag,
+sub decode_head($self, $data) {
+  my @head = unpack('CCCCiiCCSI', $data);
+  my $head = {
+    Version        => $head[1],
+    SessionID      => $head[4],
+    Sequence       => $head[5],
+    MessageId      => $head[8],
+    Content_Length => $head[9],
+    Channel        => $head[6],
+    EndFlag        => $head[7],
   };
-
-  $self->sid($sid);
-  return $reply_head;
+  $self->sid($head[4]);
+  return $head;
 }
 
-sub get_reply_data($self, $reply) {
-  my $length = $reply->{'Content_Length'};
-  my $out;
-
-  do {
-    $self->{socket}->recv(my $data, $length) // die "recv: $!"; # TODO
-    $length -= length $data;
-    $out .= $data;
-  } while ($length > 0);
-
-  return $out;
-}
-
-sub prepare_generic_command_head($self, $msgid, $parameters) {
-  my $pkt = $parameters;
-
-  if ($msgid ne LOGIN_REQ2 and defined $parameters) {
+sub send_head($self, $msgid, $parameters) {
+  if ($msgid != LOGIN_REQ2 and defined $parameters) {
     $parameters->{SessionID} = $self->_build_packet_sid();
   }
 
-  if ($msgid eq MONITOR_REQ) {
+  if ($msgid == MONITOR_REQ) {
     $parameters->{SessionID} = sprintf("0x%02X", $self->sid);
   }
 
-  my $cmd_data = $self->build_packet($msgid, $pkt);
+  my $cmd_data = $self->build_packet($msgid, $parameters);
 
-  $self->{socket}->send($cmd_data); # TODO
-  my $reply_head = $self->get_reply_head();
-  return $reply_head;
-}
-
-sub prepare_generic_command($self, $msgid, $parameters) {
-  my $reply_head = $self->prepare_generic_command_head($msgid, $parameters);
-  my $out = $self->get_reply_data($reply_head);
-
-  if ($out) {
-    my $json;
-    # trim off garbage at line ending
-    $out =~ s/([\x00-\x20]*)\Z//ms;
-
-    eval {
-      # code that might throw exception
-      $json = decode_json($out);
-    };
-    if ($@) {
-      # report the exception and do something about it
-      print "decode_json exception. data:" . $out . "\n";
-    }
-
-    my $code = $json->{'Ret'};
-
-    if (defined($code)) {
-      if (defined(ERROR_CODES->{$code})) {
-        $json->{'RetMessage'} = ERROR_CODES->{$code};
-      }
-    }
-
-    return $json;
+  $self->stream->write($cmd_data);
+  if ($self->debug) {
+    warn "==> sending ${\length $cmd_data} byte request\n";
   }
-  return undef;
 }
 
-sub prepare_generic_file_download_command($self, $msgid, $parameters, $file) {
-  my $reply_head = $self->prepare_generic_command_head($msgid, $parameters);
-  my $out = $self->get_reply_data($reply_head);
+async sub send_command($self, $msgid, $parameters) {
+  my $p = Mojo::Promise->new;
+  $self->once(packet => sub($, $data, $head) {
+    if ($data) {
+      my $json;
+      # trim off garbage at line ending
+      $data =~ s/([\x00-\x20]*)\Z//ms;
 
-  open(my $fh, ">$file");
-  print $fh $out;
-  close $fh;
+      eval {
+        # code that might throw exception
+        $json = decode_json($data);
+      };
+      if ($@) {
+        # report the exception and do something about it
+        $p->reject("decode_json exception: $@\n");
+        return;
+      }
 
-  return 1;
+      my $code = $json->{'Ret'};
+
+      if (defined($code)) {
+        if (defined(ERROR_CODES->{$code})) {
+          $json->{'RetMessage'} = ERROR_CODES->{$code};
+        }
+      }
+
+      $p->resolve($json);
+    }
+    $p->reject("no response");
+  });
+  $self->send_head($msgid, $parameters);
+  return $p;
+}
+
+async sub send_download_command($self, $msgid, $parameters, $file) {
+  my $p = Mojo::Promise->new;
+  $self->once(packet => sub ($, $data, $head) {
+    if ($self->debug) {
+      warn ">>> writng > $file\n";
+    }
+    open my $fh, '>', $file;
+    print $fh $data;
+    close $fh;
+    $p->resolve(1);
+  });
+  $self->send_head($msgid, $parameters);
+  return $p;
+}
+
+async sub send_stream_command {
+  my ($self, $msgid, $parameters, $file, $mode) = @_;
+  $mode ||= '>';
+  my $p = Mojo::Promise->new;
+  if ($self->debug) {
+    warn ">>> writing $mode $file\n";
+  }
+  open my ($fh), $mode, $file;
+  $self->on(packet => sub ($, $data, $head) {
+    print $fh $data;
+    if (!$head->{Content_Length} || ($head->{MessageId} != DOWNLOAD_DATA && $head->{MessageId} != MONITOR_DATA)) {
+      $self->unsubscribe('packet');
+      close $fh;
+      $p->resolve(1);
+    }
+  });
+  $self->send_head($msgid, $parameters);
+  return $p;
 }
 
 sub _md5_hash($self, $message) {
   my $hash = '';
   my $msg_md5 = md5($message);
-
-  if ($self->debug != 0) {
-    print md5_hex($message) . "\n";
-  }
-
   my @hash = unpack('C*', $msg_md5);
-
-  if ($self->debug != 0) {
-    for my $chr (@hash) {
-      print sprintf("%02x ", $chr);
-    }
-
-    print "\n";
-  }
-
   for (my $i = 0; $i < 8; $i++) {
     my $n = ($hash[ 2 * $i ] + $hash[ 2 * $i + 1 ]) % 0x3e;
-
     if ($n > 9) {
       if ($n > 35) {
         $n += 61;
@@ -450,22 +462,12 @@ sub _md5_hash($self, $message) {
     else {
       $n += 0x30;
     }
-
-    if ($self->debug != 0) {
-      print "$n\n";
-    }
-
     $hash .= chr($n);
   }
-
-  if ($self->debug != 0) {
-    print "hash = $hash\n";
-  }
-
   return $hash;
 }
 
-sub _plain_hash($self, $message) {
+sub _plain_hash($, $message) {
   return $message;
 }
 
@@ -478,32 +480,31 @@ sub _make_hash($self, $message) {
   }
 }
 
-sub cmd_login($self) {
+async sub cmd_login($self) {
   my $pkt = {
     EncryptType => "MD5",
     LoginType   => "DVRIP-Web",
     PassWord    => $self->_make_hash($self->password),
     UserName    => $self->user
   };
-  my $reply_json = $self->prepare_generic_command(LOGIN_REQ2, $pkt);
-  return $reply_json;
+  $self->send_command(LOGIN_REQ2, $pkt);
 }
 
-sub cmd_system_info($self) {
+async sub cmd_system_info($self) {
   my $pkt = { Name => 'SystemInfo', };
-  my $systeminfo = $self->prepare_generic_command(SYSINFO_REQ, $pkt);
+  my $systeminfo = $self->send_command(SYSINFO_REQ, $pkt);
   return $systeminfo;
 }
 
-sub cmd_alarm_info($self, $parameters) {
+async sub cmd_alarm_info($self, $parameters) {
   my $pkt = {
     Name      => 'AlarmInfo',
     AlarmInfo => $parameters,
   };
-  return $self->prepare_generic_command(ALARM_REQ, $pkt);
+  return $self->send_command(ALARM_REQ, $pkt);
 }
 
-sub cmd_net_alarm($self) {
+async sub cmd_net_alarm($self) {
   my $pkt = {
     Name         => 'OPNetAlarm',
     NetAlarmInfo => {
@@ -511,10 +512,10 @@ sub cmd_net_alarm($self) {
       State => 1,
     },
   };
-  return $self->prepare_generic_command(NET_ALARM_REQ, $pkt);
+  return $self->send_command(NET_ALARM_REQ, $pkt);
 }
 
-sub cmd_alarm_center_message($self) {
+async sub cmd_alarm_center_message($self) {
   my $pkt = {
     Name              => 'NetAlarmCenter',
     NetAlarmCenterMsg => {
@@ -528,59 +529,51 @@ sub cmd_alarm_center_message($self) {
       Type      => "Alarm",
     },
   };
-
-  my $cmd_data = $self->build_packet(ALARMCENTER_MSG_REQ, $pkt);
-
-  $self->{socket}->send($cmd_data); # TODO
-  my $reply_head = $self->get_reply_head();
-  my $out = $self->get_reply_data($reply_head);
-  # trim off garbage at line ending
-  $out =~ s/([\x00-\x20]*)\Z//ms;
-  return decode_json($out);
+  return $self->send_command(ALARMCENTER_MSG_REQ, $pkt);
 }
 
-sub cmd_net_keyboard($self, $parameters) {
+async sub cmd_net_keyboard($self, $parameters) {
   my $pkt = {
     Name          => 'OPNetKeyboard',
     OPNetKeyboard => $parameters,
   };
-  return $self->prepare_generic_command(NET_KEYBOARD_REQ, $pkt);
+  return $self->send_command(NET_KEYBOARD_REQ, $pkt);
 }
 
-sub cmd_users($self) {
-  return $self->prepare_generic_command(USERS_GET, {});
+async sub cmd_users($self) {
+  return $self->send_command(USERS_GET, {});
 }
 
-sub cmd_groups($self) {
-  return $self->prepare_generic_command(GROUPS_GET, {});
+async sub cmd_groups($self) {
+  return $self->send_command(GROUPS_GET, {});
 }
 
-sub cmd_storage_info($self) {
+async sub cmd_storage_info($self) {
   my $pkt = { Name => 'StorageInfo' };
-  return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
+  return $self->send_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_work_state($self) {
+async sub cmd_work_state($self) {
   my $pkt = { Name => 'WorkState', };
-  return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
+  return $self->send_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_snap($self, $out) {
+async sub cmd_snap($self, $out) {
   my $pkt = { Name => 'OPSNAP' };
-  return $self->prepare_generic_file_download_command(NET_SNAP_REQ, $pkt, $out);
+  return $self->send_download_command(NET_SNAP_REQ, $pkt, $out);
 }
 
-sub cmd_empty($self) {
+async sub cmd_empty($self) {
   my $pkt = { Name => '' };
-  return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
+  return $self->send_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_keepalive($self) {
+async sub cmd_keepalive($self) {
   my $pkt = { Name => 'KeepAlive' };
-  return $self->prepare_generic_command(KEEPALIVE_REQ, $pkt);
+  return $self->send_command(KEEPALIVE_REQ, $pkt);
 }
 
-sub cmd_monitor_claim($self) {
+async sub cmd_monitor_claim($self) {
   my $pkt = {
     Name      => 'OPMonitor',
     OPMonitor => {
@@ -593,10 +586,10 @@ sub cmd_monitor_claim($self) {
       }
     }
   };
-  return $self->prepare_generic_command(MONITOR_CLAIM, $pkt);
+  return $self->send_command(MONITOR_CLAIM, $pkt);
 }
 
-sub cmd_monitor_stop($self) {
+async sub cmd_monitor_stop($self) {
   my $pkt = {
     Name      => 'OPMonitor',
     SessionID => $self->_build_packet_sid(),
@@ -610,26 +603,10 @@ sub cmd_monitor_stop($self) {
       }
     }
   };
-  my $cmd_data = $self->build_packet(MONITOR_REQ, $pkt);
-  $self->{socket}->send($cmd_data); # TODO
-
-  my $reply = $self->get_reply_head();
-
-  for my $k (keys %{$reply}) {
-    print "rh = $k\n";
-  }
-
-  my $out = $self->get_reply_data($reply);
-  # trim off garbage at line ending
-  $out =~ s/([\x00-\x20]*)\Z//ms;
-  my $out1 = decode_json($out);
-
-  return $out1;
+  return $self->send_command(MONITOR_CLAIM, $pkt);
 }
 
-sub cmd_monitor_start($self, $file, $mode) {
-  $mode ||= '>';
-
+async sub cmd_monitor_start($self, $file, $mode) {
   my $pkt = {
     Name      => 'OPMonitor',
     SessionID => $self->_build_packet_sid(),
@@ -643,151 +620,142 @@ sub cmd_monitor_start($self, $file, $mode) {
       }
     }
   };
-
-  my $cmd_data = $self->build_packet(MONITOR_REQ, $pkt);
-  $self->{socket}->send($cmd_data); # TODO
-
-  open my ($fh), $mode, $file;
-
-  my $stop = 0;
-  while (defined(my $reply = $self->get_reply_head()) and $stop == 0) {
-    print $fh $self->get_reply_data($reply);
-  }
-
-  close $fh;
-  return 1;
+  $SIG{PIPE} = sub { $self->cmd_monitor_stop };
+  my $ret = await $self->send_stream_command(MONITOR_REQ, $pkt, $file, $mode);
+  $SIG{PIPE} = 'IGNORE';
+  return $ret;
 }
 
-sub cmd_set_time($self, $nortc) {
-  my ($sec, $min, $hour, $mday, $mon, $year) = localtime();
+# TODO not updated for mojo/async
+# sub cmd_set_time($self, $nortc) {
+#   my ($sec, $min, $hour, $mday, $mon, $year) = localtime();
+#
+#   my $clock_cmd = 'OPTimeSetting';
+#
+#   my $pkt_type = SYSMANAGER_REQ;
+#
+#   if ($nortc) {
+#     $clock_cmd .= 'NoRTC';
+#     $pkt_type = SYNC_TIME_REQ;
+#   }
+#
+#   my $pkt = {
+#     Name         => $clock_cmd,
+#     SessionID    => $self->_build_packet_sid(),
+#     "$clock_cmd" => sprintf(
+#       "%4d-%02d-%02d %02d:%02d:%02d",
+#       $year + 1900,
+#       $mon + 1, $mday, $hour, $min, $sec
+#     )
+#   };
+#
+#   my $cmd_data = $self->build_packet($pkt_type, $pkt);
+#
+#   $self->{socket}->send($cmd_data); # TODO
+#   my $reply = $self->recv_head();
+#   my $out = $self->recv_data($reply);
+#
+#   if ($out) {
+#     # trim off garbage at line ending
+#     $out =~ s/([\x00-\x20]*)\Z//ms;
+#     return decode_json($out);
+#   }
+#
+#   return undef;
+# }
 
-  my $clock_cmd = 'OPTimeSetting';
-
-  my $pkt_type = SYSMANAGER_REQ;
-
-  if ($nortc) {
-    $clock_cmd .= 'NoRTC';
-    $pkt_type = SYNC_TIME_REQ;
-  }
-
-  my $pkt = {
-    Name         => $clock_cmd,
-    SessionID    => $self->_build_packet_sid(),
-    "$clock_cmd" => sprintf(
-      "%4d-%02d-%02d %02d:%02d:%02d",
-      $year + 1900,
-      $mon + 1, $mday, $hour, $min, $sec
-    )
-  };
-
-  my $cmd_data = $self->build_packet($pkt_type, $pkt);
-
-  $self->{socket}->send($cmd_data); # TODO
-  my $reply = $self->get_reply_head();
-  my $out = $self->get_reply_data($reply);
-
-  if ($out) {
-    # trim off garbage at line ending
-    $out =~ s/([\x00-\x20]*)\Z//ms;
-    return decode_json($out);
-  }
-
-  return undef;
-}
-
-sub cmd_system_function($self) {
+async sub cmd_system_function($self) {
   my $pkt = { Name => 'SystemFunction' };
-  return $self->prepare_generic_command(ABILITY_REQ, $pkt);
+  return $self->send_command(ABILITY_REQ, $pkt);
 }
 
-sub cmd_file_query($self, $parameters) {
+async sub cmd_file_query($self, $parameters) {
   my $pkt = {
     Name        => 'OPFileQuery',
     OPFileQuery => $parameters,
   };
-  return $self->prepare_generic_command(FILESEARCH_REQ, $pkt);
+  return $self->send_command(FILESEARCH_REQ, $pkt);
 }
 
-sub cmd_oem_info($self) {
+async sub cmd_oem_info($self) {
   my $pkt = { Name => 'OEMInfo' };
-  return $self->prepare_generic_command(SYSINFO_REQ, $pkt);
+  return $self->send_command(SYSINFO_REQ, $pkt);
 }
 
-sub cmd_playback($self, $parameters) {
+async sub cmd_playback($self, $parameters) {
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
-  return $self->prepare_generic_command(PLAY_CLAIM, $pkt);
+  return $self->send_command(PLAY_CLAIM, $pkt);
 }
 
-sub cmd_playback_download_start($self, $parameters, $file, $mode) {
+async sub cmd_playback_download_start($self, $parameters, $file, $mode) {
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
-
-  my $reply_head = $self->prepare_generic_command_head(PLAY_REQ, $pkt);
-  open my ($fh), $mode, $file;
-  do {
-    print $fh $self->get_reply_data($reply_head);
-    $reply_head = $self->get_reply_head();
-  } while ($reply_head->{'Content_Length'} > 0 && $reply_head->{'MessageId'} == DOWNLOAD_DATA);
-  close $fh;
+  return $self->send_stream_command(PLAY_REQ, $pkt, $file, $mode);
 }
 
-sub cmd_log_query($self, $parameters) {
+async sub cmd_log_query($self, $parameters) {
   my $pkt = {
     Name       => 'OPLogQuery',
     OPLogQuery => $parameters,
   };
-  return $self->prepare_generic_command(LOGSEARCH_REQ, $pkt);
+  return $self->send_command(LOGSEARCH_REQ, $pkt);
 }
 
-sub cmd_export_log($self, $file) {
+# TODO not working
+# async sub cmd_export_log {
+#   my ($self, $file) = @_;
+#   $file ||= 'logs.zip';
+#   my $pkt = { Name => '' };
+#   return $self->send_download_command(LOG_EXPORT_REQ, $pkt, $file);
+# }
+
+async sub cmd_export_config {
+  my ($self, $file) = @_;
+  $file ||= 'conf.zip';
   my $pkt = { Name => '' };
-  return $self->prepare_generic_file_download_command(LOG_EXPORT_REQ, $pkt, $file);
+  return $self->send_download_command(CONFIG_EXPORT_REQ, $pkt, $file);
 }
 
-sub cmd_export_config($self, $file) {
-  my $pkt = { Name => '' };
-  return $self->prepare_generic_file_download_command(CONFIG_EXPORT_REQ, $pkt, $file);
-}
-
-sub cmd_storage_manager($self, $parameters) {
+async sub cmd_storage_manager($self, $parameters) {
   my $pkt = {
     Name             => 'OPStorageManager',
     OPStorageManager => $parameters,
     SessionID        => $self->_build_packet_sid(),
   };
-  return $self->prepare_generic_command(DISKMANAGER_REQ, $pkt);
+  return $self->send_command(DISKMANAGER_REQ, $pkt);
 }
 
-sub cmd_config_get($self, $parameters) {
+async sub cmd_config_get($self, $parameters) {
   my $pkt = { Name => $parameters };
-  return $self->prepare_generic_command(CONFIG_GET, $pkt);
+  return $self->send_command(CONFIG_GET, $pkt);
 }
 
-sub cmd_config_set($self, $name, $value) {
+async sub cmd_config_set($self, $name, $value) {
   my $pkt = { Name => $name, $name => $value };
-  return $self->prepare_generic_command(CONFIG_SET, $pkt);
+  return $self->send_command(CONFIG_SET, $pkt);
 }
 
-sub cmd_ptz_control($self, $parameters) {
+async sub cmd_ptz_control($self, $parameters) {
   my $pkt = { Name => 'OPPTZControl', OPPTZControl => $parameters };
-  return $self->prepare_generic_command(PTZ_REQ, $pkt);
+  return $self->send_command(PTZ_REQ, $pkt);
 }
 
-sub cmd_ptz($self, $direction, $ms) {
+async sub cmd_ptz {
+  my ($self, $direction, $ms) = @_;
   $direction ||= 'left';
-  $direction = "Direction" . ucfirst(lc($direction)) unless $direction =~ /^[A-Z]/;
   $ms ||= 500;
+  $direction = "Direction" . ucfirst(lc($direction)) unless $direction =~ /^[A-Z]/;
   my $remainder = 0;
   if ($ms > 9000) {
     $remainder = $ms - 9000;
     $ms = 9000;
   }
-  my $res = $self->cmd_ptz_control({
+  my $res = await $self->cmd_ptz_control({
     "Command"   => $direction,
     "Parameter" => {
       "AUX"      => {
@@ -809,37 +777,41 @@ sub cmd_ptz($self, $direction, $ms) {
     }
   });
   return $res unless $res->{Ret} == 100;
-  usleep($ms * 1000);
-  $res = $self->cmd_ptz_control({
-    "Command"   => $direction,
-    "Parameter" => {
-      "AUX"      => {
-        "Number" => 0,
-        "Status" => "On"
-      },
-      "Channel"  => 0,
-      "MenuOpts" => "Enter",
-      "POINT"    => {
-        "bottom" => 0,
-        "left"   => 0,
-        "right"  => 0,
-        "top"    => 0
-      },
-      "Pattern"  => "SetBegin",
-      "Preset"   => -1,
-      "Step"     => 8,
-      "Tour"     => 0,
-    }
+  my $p = Mojo::Promise->new;
+  Mojo::IOLoop->timer($ms/1000, sub {
+    $self->cmd_ptz_control({
+      "Command"   => $direction,
+      "Parameter" => {
+        "AUX"      => {
+          "Number" => 0,
+          "Status" => "On"
+        },
+        "Channel"  => 0,
+        "MenuOpts" => "Enter",
+        "POINT"    => {
+          "bottom" => 0,
+          "left"   => 0,
+          "right"  => 0,
+          "top"    => 0
+        },
+        "Pattern"  => "SetBegin",
+        "Preset"   => -1,
+        "Step"     => 8,
+        "Tour"     => 0,
+      }
+    })->then(sub {
+      if ($remainder > 0 && $_[0]->{Ret} == 100) {
+        $self->cmd_ptz($direction, $remainder)->then(sub { $p->resolve($_[0]) });
+      }
+      else {
+        $p->resolve($res);
+      }
+    });
   });
-  if ($remainder > 0 && $res->{Ret} == 100) {
-    return $self->cmd_ptz($direction, $remainder);
-  }
-  else {
-    return $res;
-  }
+  return $p;
 }
 
-sub cmd_ptz_set_preset($self, $preset) {
+async sub cmd_ptz_set_preset($self, $preset) {
   return $self->cmd_ptz_control({
     "Command"   => "SetPreset",
     "Parameter" => {
@@ -856,14 +828,14 @@ sub cmd_ptz_set_preset($self, $preset) {
         "top"    => 0
       },
       "Pattern"  => "Start",
-      "Preset"   => $preset + 0 // 0,
+      "Preset"   => $preset + 0,
       "Step"     => 10,
       "Tour"     => 0,
     }
   });
 }
 
-sub cmd_ptz_goto_preset($self, $preset) {
+async sub cmd_ptz_goto_preset($self, $preset) {
   return $self->cmd_ptz_control({
     "Command"   => "GotoPreset",
     "Parameter" => {
@@ -880,50 +852,49 @@ sub cmd_ptz_goto_preset($self, $preset) {
         "top"    => 0
       },
       "Pattern"  => "Start",
-      "Preset"   => $preset + 0 // 0,
+      "Preset"   => $preset + 0,
       "Step"     => 10,
       "Tour"     => 0,
     }
   });
 }
 
-sub cmd_ptz_abs($self, $x, $y) {
-  $self->cmd_ptz(up => 5000);
-  $self->cmd_ptz(left => 27000);
-  $self->cmd_ptz(right => $x || 0);
-  $self->cmd_ptz(down => $y || 0);
+async sub cmd_ptz_abs($self, $x, $y) {
+  await $self->cmd_ptz(up => 5000);
+  await $self->cmd_ptz(left => 27000);
+  await $self->cmd_ptz(right => $x);
+  await $self->cmd_ptz(down => $y);
 }
 
-sub cmd_alarm_start($self, $cb) {
-  $cb ||= sub {print encode_json($_[1]) . "\n"};
+# TODO not reworked for mojo/non-blocking yet
+# sub cmd_alarm_start($self, $cb = sub {print encode_json($_[1]) . "\n"}) {
+#   my $pkt = {
+#     Name      => '',
+#     SessionID => $self->_build_packet_sid(),
+#   };
+#
+#   my $res = $self->send_command(GUARD_REQ, $pkt);
+#   return $res unless $res->{Ret} == 100;
+#
+#   # wait for alarms
+#   my $select = IO::Select->new;
+#   $select->add($self->{socket});
+#   while (1) {
+#     $! = 0;
+#     my @ready = $select->can_read(20); # TODO
+#     last if $!;
+#     if (@ready) {
+#       my $reply_head = $self->recv_head();
+#       my $out = $self->recv_data($reply_head);
+#       # trim off garbage at line ending
+#       $out =~ s/([\x00-\x20]*)\Z//ms;
+#       $cb->($self, decode_json($out)->{AlarmInfo});
+#     }
+#     $self->cmd_keepalive;
+#   }
+# }
 
-  my $pkt = {
-    Name      => '',
-    SessionID => $self->_build_packet_sid(),
-  };
-
-  my $res = $self->prepare_generic_command(GUARD_REQ, $pkt);
-  return $res unless $res->{Ret} == 100;
-
-  # wait for alarms
-  my $select = IO::Select->new;
-  $select->add($self->{socket});
-  while (1) {
-    $! = 0;
-    my @ready = $select->can_read(20); # TODO
-    last if $!;
-    if (@ready) {
-      my $reply_head = $self->get_reply_head();
-      my $out = $self->get_reply_data($reply_head);
-      # trim off garbage at line ending
-      $out =~ s/([\x00-\x20]*)\Z//ms;
-      $cb->($self, decode_json($out)->{AlarmInfo});
-    }
-    $self->cmd_keepalive;
-  }
-}
-
-sub _get_transcode_args($self, $file, $seconds) {
+sub _get_transcode_args($, $file, $seconds = 0) {
   $file ||= 'out.h264';
   my $mode = '>';
   unless ($file =~ /\.h264$/) {
@@ -939,10 +910,13 @@ sub _get_transcode_args($self, $file, $seconds) {
   return($file, $mode);
 }
 
-sub cmd_monitor($self, $file, $seconds) {
-  my $res = $self->cmd_monitor_claim;
+async sub cmd_monitor {
+  my ($self, $file, $seconds) = @_;
+  $seconds ||= 5;
+  my $res = await $self->cmd_monitor_claim;
   return $res unless $res->{Ret} == 100;
-  return $self->cmd_monitor_start($self->_get_transcode_args($file, $seconds));
+  my ($f, $m) = $self->_get_transcode_args($file, $seconds);
+  return $self->cmd_monitor_start($f, $m);
 }
 
 sub _parse_relative_time($self, $ts) {
@@ -956,10 +930,11 @@ sub _parse_relative_time($self, $ts) {
   }
 }
 
-sub cmd_ls($self, $begin, $end) {
+async sub cmd_ls {
+  my ($self, $begin, $end) = @_;
   $begin = $self->_parse_relative_time($begin // 3600);
   $end = $self->_parse_relative_time($end // 0);
-  my $res = $self->cmd_file_query({
+  my $res = await $self->cmd_file_query({
     BeginTime      => $begin,
     EndTime        => $end,
     Channel        => 0,
@@ -970,12 +945,13 @@ sub cmd_ls($self, $begin, $end) {
     Event          => "*",    # * - All; A - Alarm; M - Motion Detect; R - General; H - Manual;
     Type           => "h264", #h264 or jpg
   });
-  return $res->{OPFileQuery};
+  return $res->{OPFileQuery} || [];
 }
 
-sub cmd_download($self, $file_rec, $outname) {
+async sub cmd_download {
+  my ($self, $file_rec, $outname) = @_;
   $outname ||= 'out.h264';
-  my $res = $self->cmd_playback({
+  my $res = await $self->cmd_playback({
     Action    => "Claim",
     StartTime => $file_rec->{'BeginTime'},
     EndTime   => $file_rec->{'EndTime'},

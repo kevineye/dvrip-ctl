@@ -1,12 +1,11 @@
 #!/usr/bin/perl
-use strict;
-use warnings;
+use Mojo::Base -strict, -signatures, -async_await;
 
 use lib 'lib';
 use IPcam;
 
 use Getopt::Long;
-use JSON;
+use Mojo::JSON qw(encode_json decode_json);
 
 GetOptions(
   "help|h"          => \my $help,
@@ -91,20 +90,26 @@ push @a, port => $port if defined $port;
 push @a, user => $user if defined $user;
 push @a, password => $pass if defined $pass;
 push @a, debug => $debug if defined $debug;
-my $cam = IPcam->new(@a);
 
-$| = 1;
+async sub main {
+  my $cam = IPcam->new(@a);
+  await $cam->connect;
 
-my $res = $cam->cmd_login;
-die "cannot connect\n" unless $cam->{sid};
-die "authentication failed\n" if $res->{Ret} >= 200;
+  $| = 1;
 
-my $method = "cmd_$cmd";
-die "invalid command '$cmd'\n" unless $cam->can($method);
-my @params = map { /^[{\[]/ ? decode_json $_ : $_ } @ARGV;
+  my $res = await $cam->cmd_login;
+  die "cannot connect\n" unless $cam->{sid};
+  die "authentication failed\n" if $res->{Ret} >= 200;
 
-$res = $cam->$method(@params);
+  my $method = "cmd_$cmd";
+  die "invalid command '$cmd'\n" unless $cam->can($method);
+  my @params = map {/^[{\[]/ ? decode_json $_ : $_} @ARGV;
 
-if ($res != 1) {
-  print encode_json($res);
+  $res = await $cam->$method(@params);
+
+  if ($res != 1) {
+    print encode_json($res);
+  }
 }
+
+main()->catch(sub { warn @_; exit -1 })->wait;
