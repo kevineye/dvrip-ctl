@@ -19,218 +19,233 @@ has sequence => 0;
 has debug => 0;
 has hashtype => 'md5based';
 
-use constant {
-  LOGIN_REQ1                     => 999,
-  LOGIN_REQ2                     => 1000,
-  LOGIN_RSP                      => 1000,
-  LOGOUT_REQ                     => 1001,
-  LOGOUT_RSP                     => 1002,
-  FORCELOGOUT_REQ                => 1003,
-  FORCELOGOUT_RSP                => 1004,
-  KEEPALIVE_REQ                  => 1006, # 1005
-  KEEPALIVE_RSP                  => 1007, # 1006
+our $message_id = {
+  login_req                      => 1000, # 999
+  login_rsp                      => 1001,
+  logout_req                     => 1002,
+  logout_rsp                     => 1003,
+  forcelogout_req                => 1004,
+  forcelogout_rsp                => 1005,
+  keepalive_req                  => 1006, # 1005
+  keepalive_rsp                  => 1007, # 1006
 
-  SYSINFO_REQ                    => 1020,
-  SYSINFO_RSP                    => 1021,
+  sysinfo_req                    => 1020,
+  sysinfo_rsp                    => 1021,
 
-  CONFIG_SET                     => 1040,
-  CONFIG_SET_RSP                 => 1041,
-  CONFIG_GET                     => 1042,
-  CONFIG_GET_RSP                 => 1043,
-  DEFAULT_CONFIG_GET             => 1044,
-  DEFAULT_CONFIG_GET_RSP         => 1045,
-  CONFIG_CHANNELTILE_SET         => 1046,
-  CONFIG_CHANNELTILE_SET_RSP     => 1047,
-  CONFIG_CHANNELTILE_GET         => 1048,
-  CONFIG_CHANNELTILE_GET_RSP     => 1049,
-  CONFIG_CHANNELTILE_DOT_SET     => 1050,
-  CONFIG_CHANNELTILE_DOT_SET_RSP => 1051,
+  config_set                     => 1040,
+  config_set_rsp                 => 1041,
+  config_get                     => 1042,
+  config_get_rsp                 => 1043,
+  default_config_get             => 1044,
+  default_config_get_rsp         => 1045,
+  config_channeltile_set         => 1046,
+  config_channeltile_set_rsp     => 1047,
+  config_channeltile_get         => 1048,
+  config_channeltile_get_rsp     => 1049,
+  config_channeltile_dot_set     => 1050,
+  config_channeltile_dot_set_rsp => 1051,
 
-  SYSTEM_DEBUG_REQ               => 1052,
-  SYSTEM_DEBUG_RSP               => 1053,
+  system_debug_req               => 1052,
+  system_debug_rsp               => 1053,
 
-  ABILITY_REQ                    => 1360,
-  ABILITY_RSP                    => 1361,
+  ability_req                    => 1360,
+  ability_rsp                    => 1361,
 
-  PTZ_REQ                        => 1400,
-  PTZ_RSP                        => 1401,
+  ptz_req                        => 1400,
+  ptz_rsp                        => 1401,
 
-  MONITOR_REQ                    => 1410,
-  MONITOR_RSP                    => 1411,
-  MONITOR_DATA                   => 1412,
-  MONITOR_CLAIM                  => 1413,
-  MONITOR_CLAIM_RSP              => 1414,
+  monitor_req                    => 1410,
+  monitor_rsp                    => 1411,
+  monitor_data                   => 1412,
+  monitor_claim                  => 1413,
+  monitor_claim_rsp              => 1414,
 
-  PLAY_REQ                       => 1420,
-  PLAY_RSP                       => 1421,
-  PLAY_DATA                      => 1422,
-  PLAY_EOF                       => 1423,
-  PLAY_CLAIM                     => 1424,
-  PLAY_CLAIM_RSP                 => 1425,
-  DOWNLOAD_DATA                  => 1426,
+  play_req                       => 1420,
+  play_rsp                       => 1421,
+  play_data                      => 1422,
+  play_eof                       => 1423,
+  play_claim                     => 1424,
+  play_claim_rsp                 => 1425,
+  download_data                  => 1426,
 
-  TALK_REQ                       => 1430,
-  TALK_RSP                       => 1431,
-  TALK_CU_PU_DATA                => 1432,
-  TALK_PU_CU_DATA                => 1433,
-  TALK_CLAIM                     => 1434,
-  TALK_CLAIM_RSP                 => 1435,
+  talk_req                       => 1430,
+  talk_rsp                       => 1431,
+  talk_cu_pu_data                => 1432,
+  talk_pu_cu_data                => 1433,
+  talk_claim                     => 1434,
+  talk_claim_rsp                 => 1435,
 
-  FILESEARCH_REQ                 => 1440,
-  FILESEARCH_RSP                 => 1441,
-  LOGSEARCH_REQ                  => 1442,
-  LOGSEARCH_RSP                  => 1443,
-  FILESEARCH_BYTIME_REQ          => 1444,
-  FILESEARCH_BYTIME_RSP          => 1445,
+  filesearch_req                 => 1440,
+  filesearch_rsp                 => 1441,
+  logsearch_req                  => 1442,
+  logsearch_rsp                  => 1443,
+  filesearch_bytime_req          => 1444,
+  filesearch_bytime_rsp          => 1445,
 
-  SYSMANAGER_REQ                 => 1450,
-  SYSMANAGER_RSP                 => 1451,
-  TIMEQUERY_REQ                  => 1452,
-  TIMEQUERY_RSP                  => 1453,
+  sysmanager_req                 => 1450,
+  sysmanager_rsp                 => 1451,
+  timequery_req                  => 1452,
+  timequery_rsp                  => 1453,
 
-  DISKMANAGER_REQ                => 1460,
-  DISKMANAGER_RSP                => 1461,
+  diskmanager_req                => 1460,
+  diskmanager_rsp                => 1461,
 
-  FULLAUTHORITYLIST_GET          => 1470,
-  FULLAUTHORITYLIST_GET_RSP      => 1471,
-  USERS_GET                      => 1472,
-  USERS_GET_RSP                  => 1473,
-  GROUPS_GET                     => 1474,
-  GROUPS_GET_RSP                 => 1475,
-  ADDGROUP_REQ                   => 1476,
-  ADDGROUP_RSP                   => 1477,
-  MODIFYGROUP_REQ                => 1478,
-  MODIFYGROUP_RSP                => 1479,
-  DELETEGROUP_REQ                => 1480,
-  DELETEGROUP_RSP                => 1481,
-  ADDUSER_REQ                    => 1482,
-  ADDUSER_RSP                    => 1483,
-  MODIFYUSER_REQ                 => 1484,
-  MODIFYUSER_RSP                 => 1485,
-  DELETEUSER_REQ                 => 1486,
-  DELETEUSER_RSP                 => 1487,
-  MODIFYPASSWORD_REQ             => 1488,
-  MODIFYPASSWORD_RSP             => 1489,
+  fullauthoritylist_get          => 1470,
+  fullauthoritylist_get_rsp      => 1471,
+  users_get                      => 1472,
+  users_get_rsp                  => 1473,
+  groups_get                     => 1474,
+  groups_get_rsp                 => 1475,
+  addgroup_req                   => 1476,
+  addgroup_rsp                   => 1477,
+  modifygroup_req                => 1478,
+  modifygroup_rsp                => 1479,
+  deletegroup_req                => 1480,
+  deletegroup_rsp                => 1481,
+  adduser_req                    => 1482,
+  adduser_rsp                    => 1483,
+  modifyuser_req                 => 1484,
+  modifyuser_rsp                 => 1485,
+  deleteuser_req                 => 1486,
+  deleteuser_rsp                 => 1487,
+  modifypassword_req             => 1488,
+  modifypassword_rsp             => 1489,
 
-  GUARD_REQ                      => 1500,
-  GUARD_RSP                      => 1501,
-  UNGUARD_REQ                    => 1502,
-  UNGUARD_RSP                    => 1503,
-  ALARM_REQ                      => 1504,
-  ALARM_RSP                      => 1505,
-  NET_ALARM_REQ                  => 1506,
-  NET_ALARM_REQ                  => 1507,
-  ALARMCENTER_MSG_REQ            => 1508,
+  guard_req                      => 1500,
+  guard_rsp                      => 1501,
+  unguard_req                    => 1502,
+  unguard_rsp                    => 1503,
+  alarm_req                      => 1504,
+  alarm_rsp                      => 1505,
+  net_alarm_req                  => 1506,
+  net_alarm_rsp                  => 1507,
+  alarmcenter_msg_req            => 1508,
 
-  UPGRADE_REQ                    => 1520,
-  UPGRADE_RSP                    => 1521,
-  UPGRADE_DATA                   => 1522,
-  UPGRADE_DATA_RSP               => 1523,
-  UPGRADE_PROGRESS               => 1524,
-  UPGRADE_INFO_REQ               => 1525,
-  UPGRADE_INFO_RSQ               => 1526,
+  upgrade_req                    => 1520,
+  upgrade_rsp                    => 1521,
+  upgrade_data                   => 1522,
+  upgrade_data_rsp               => 1523,
+  upgrade_progress               => 1524,
+  upgrade_info_req               => 1525,
+  upgrade_info_rsq               => 1526,
 
-  IPSEARCH_REQ                   => 1530,
-  IPSEARCH_RSP                   => 1531,
-  IP_SET_REQ                     => 1532,
-  IP_SET_RSP                     => 1533,
+  ipsearch_req                   => 1530,
+  ipsearch_rsp                   => 1531,
+  ip_set_req                     => 1532,
+  ip_set_rsp                     => 1533,
 
-  CONFIG_IMPORT_REQ              => 1540,
-  CONFIG_IMPORT_RSP              => 1541,
-  CONFIG_EXPORT_REQ              => 1542,
-  CONFIG_EXPORT_RSP              => 1543,
-  LOG_EXPORT_REQ                 => 1544, #CONDIG_EXPORT_REQ
-  LOG_EXPORT_RSP                 => 1545, #CONFIG_EXPORT_RSP
+  config_import_req              => 1540,
+  config_import_rsp              => 1541,
+  config_export_req              => 1542,
+  config_export_rsp_data         => 1543,
+  log_export_req                 => 1544, #condig_export_req
+  log_export_rsp_data            => 1545, #config_export_rsp
 
-  NET_KEYBOARD_REQ               => 1550,
-  NET_KEYBOARD_RSP               => 1551,
+  net_keyboard_req               => 1550,
+  net_keyboard_rsp               => 1551,
 
-  NET_SNAP_REQ                   => 1560,
-  NET_SNAP_RSP                   => 1561,
-  SET_IFRAME_REQ                 => 1562,
-  SET_IFRAME_RSP                 => 1563,
+  net_snap_req                   => 1560,
+  net_snap_rsp_data              => 1561,
+  set_iframe_req                 => 1562,
+  set_iframe_rsp                 => 1563,
 
-  RS232_READ_REQ                 => 1570,
-  RS232_READ_RSP                 => 1571,
-  RS232_WRITE_REQ                => 1572,
-  RS232_WRITE_RSP                => 1573,
-  RS485_READ_REQ                 => 1574,
-  RS485_READ_RSP                 => 1575,
-  RS485_WRITE_REQ                => 1576,
-  RS485_WRITE_RSP                => 1577,
-  TRANSPARENT_COMM_REQ           => 1578,
-  TRANSPARENT_COMM_RSP           => 1579,
-  RS485_TRANSPARENT_DATA_REQ     => 1580,
-  RS485_TRANSPARENT_DATA_RSP     => 1581,
-  RS232_TRANSPARENT_DATA_REQ     => 1582,
-  RS232_TRANSPARENT_DATA_RSP     => 1583,
+  rs232_read_req                 => 1570,
+  rs232_read_rsp                 => 1571,
+  rs232_write_req                => 1572,
+  rs232_write_rsp                => 1573,
+  rs485_read_req                 => 1574,
+  rs485_read_rsp                 => 1575,
+  rs485_write_req                => 1576,
+  rs485_write_rsp                => 1577,
+  transparent_comm_req           => 1578,
+  transparent_comm_rsp           => 1579,
+  rs485_transparent_data_req     => 1580,
+  rs485_transparent_data_rsp     => 1581,
+  rs232_transparent_data_req     => 1582,
+  rs232_transparent_data_rsp     => 1583,
 
-  SYNC_TIME_REQ                  => 1590,
-  SYNC_TIME_RSP                  => 1591,
+  sync_time_req                  => 1590,
+  sync_time_rsp                  => 1591,
 
-  PHOTO_GET_REQ                  => 1600,
-  PHOTO_GET_RSP                  => 1601,
-
-  ERROR_CODES                    => {
-    100 => "OK",
-    101 => "unknown mistake",
-    102 => "Version not supported",
-    103 => "Illegal request",
-    104 => "The user has logged in",
-    105 => "The user is not logged in",
-    106 => "username or password is wrong",
-    107 => "No permission",
-    108 => "time out",
-    109 => "Failed to find, no corresponding file found",
-    110 => "Find successful, return all files",
-    111 => "Find success, return some files",
-    112 => "This user already exists",
-    113 => "this user does not exist",
-    114 => "This user group already exists",
-    115 => "This user group does not exist",
-    116 => "Error 116",
-    117 => "Wrong message format",
-    118 => "PTZ protocol not set",
-    119 => "No query to file",
-    120 => "Configure to enable",
-    121 => "MEDIA_CHN_NOT CONNECT digital channel is not connected",
-    150 => "Successful, the device needs to be restarted",
-    202 => "User not logged in",
-    203 => "The password is incorrect",
-    204 => "User illegal",
-    205 => "User is locked",
-    206 => "User is on the blacklist",
-    207 => "Username is already logged in",
-    208 => "Input is illegal",
-    209 => "The index is repeated if the user to be added already exists, etc.",
-    210 => "No object exists, used when querying",
-    211 => "Object does not exist",
-    212 => "Account is in use",
-    213 =>
-      "The subset is out of scope (such as the group's permissions exceed the permission table, the user permissions exceed the group's permission range, etc.)",
-    214 => "The password is illegal",
-    215 => "Passwords do not match",
-    216 => "Retain account",
-    502 => "The command is illegal",
-    503 => "Intercom has been turned on",
-    504 => "Intercom is not turned on",
-    511 => "Already started upgrading",
-    512 => "Not starting upgrade",
-    513 => "Upgrade data error",
-    514 => "upgrade unsuccessful",
-    515 => "update successed",
-    521 => "Restore default failed",
-    522 => "Need to restart the device",
-    523 => "Illegal default configuration",
-    602 => "Need to restart the app",
-    603 => "Need to restart the system",
-    604 => "Error writing a file",
-    605 => "Feature not supported",
-    606 => "verification failed",
-    607 => "Configuration does not exist",
-    608 => "Configuration parsing error",
-  }
+  photo_get_req                  => 1600,
+  photo_get_rsp                  => 1601,
 };
+
+our $message_id_reverse = { reverse % $message_id };
+
+our $error_codes = {
+  100 => "OK",
+  101 => "unknown mistake",
+  102 => "Version not supported",
+  103 => "Illegal request",
+  104 => "The user has logged in",
+  105 => "The user is not logged in",
+  106 => "username or password is wrong",
+  107 => "No permission",
+  108 => "time out",
+  109 => "Failed to find, no corresponding file found",
+  110 => "Find successful, return all files",
+  111 => "Find success, return some files",
+  112 => "This user already exists",
+  113 => "this user does not exist",
+  114 => "This user group already exists",
+  115 => "This user group does not exist",
+  116 => "Error 116",
+  117 => "Wrong message format",
+  118 => "PTZ protocol not set",
+  119 => "No query to file",
+  120 => "Configure to enable",
+  121 => "MEDIA_CHN_NOT CONNECT digital channel is not connected",
+  150 => "Successful, the device needs to be restarted",
+  202 => "User not logged in",
+  203 => "The password is incorrect",
+  204 => "User illegal",
+  205 => "User is locked",
+  206 => "User is on the blacklist",
+  207 => "Username is already logged in",
+  208 => "Input is illegal",
+  209 => "The index is repeated if the user to be added already exists, etc.",
+  210 => "No object exists, used when querying",
+  211 => "Object does not exist",
+  212 => "Account is in use",
+  213 =>
+    "The subset is out of scope (such as the group's permissions exceed the permission table, the user permissions exceed the group's permission range, etc.)",
+  214 => "The password is illegal",
+  215 => "Passwords do not match",
+  216 => "Retain account",
+  502 => "The command is illegal",
+  503 => "Intercom has been turned on",
+  504 => "Intercom is not turned on",
+  511 => "Already started upgrading",
+  512 => "Not starting upgrade",
+  513 => "Upgrade data error",
+  514 => "upgrade unsuccessful",
+  515 => "update successed",
+  521 => "Restore default failed",
+  522 => "Need to restart the device",
+  523 => "Illegal default configuration",
+  602 => "Need to restart the app",
+  603 => "Need to restart the system",
+  604 => "Error writing a file",
+  605 => "Feature not supported",
+  606 => "verification failed",
+  607 => "Configuration does not exist",
+  608 => "Configuration parsing error",
+};
+
+sub clone($self) {
+  $self->new(
+    host => $self->host,
+    port => $self->port,
+    user => $self->user,
+    password => $self->password,
+    debug => $self->debug,
+  );
+}
+
+sub disconnect($self) {
+  $self->stream && $self->stream->close;
+}
 
 async sub connect($self) {
   $self->{buffer} = '';
@@ -244,7 +259,6 @@ async sub connect($self) {
       $self->stream($stream);
       $stream->on(error => sub {$self->stream_error($_[1])});
       $stream->on(read => sub {$self->stream_read($_[1])});
-      $stream->on(close => sub {$self->stream_close});
       $p->resolve($self);
     }
   });
@@ -259,10 +273,17 @@ sub stream_read($self, $bytes) {
       my $data = substr $self->{buffer}, 0, $header->{Content_Length};
       $self->{recv_header} = undef;
       substr($self->{buffer}, 0, $header->{Content_Length}) = '';
-      if ($self->debug) {
-        warn "<== received complete packet with $header->{Content_Length} bytes of data\n";
+
+      if ($header->{MessageId} && $header->{MessageId} !~ /_data$/) {
+        $data =~ s/([\x00-\x20]*)\Z//ms; # trim off garbage at line ending
+        $data = decode_json($data);
+        $data->{'RetMessage'} = $error_codes->{$data->{'Ret'}} if $data->{'Ret'} && $error_codes->{$data->{'Ret'}};
       }
-      $self->emit(packet => ($data, $header));
+      if ($self->debug) {
+        warn "<== received $header->{MessageId} packet with $header->{Content_Length} bytes of data\n";
+      }
+      my $event_name = $header->{MessageId} || 'packet';
+      $self->emit($event_name => ($data, $header));
     }
     elsif (!$self->{recv_header} && length $self->{buffer} >= 20) {
       $self->{recv_header} = $self->decode_head(substr $self->{buffer}, 0, 20);
@@ -278,10 +299,6 @@ sub stream_read($self, $bytes) {
       last;
     }
   }
-}
-
-sub stream_close($) {
-  die "connection closed\n";
 }
 
 sub stream_error($, $err) {
@@ -301,23 +318,23 @@ sub build_packet($self, $type, $params) {
 
   $pkt_type = $type;
 
-  if ($pkt_type eq FULLAUTHORITYLIST_GET) {
+  if ($pkt_type eq 'fullauthoritylist_get') {
     $pkt_prefix_2 = 0x16;
   }
-  elsif ($pkt_type eq DELETEUSER_REQ) {
+  elsif ($pkt_type eq 'deleteuser_req') {
     $pkt_prefix_2 = 0x06;
   }
-  elsif ($pkt_type eq LOGSEARCH_REQ) {
+  elsif ($pkt_type eq 'logsearch_req') {
     $pkt_prefix_2 = 0x22;
   }
-  elsif ($pkt_type eq CONFIG_CHANNELTILE_SET) {
+  elsif ($pkt_type eq 'config_channeltile_set') {
     $pkt_prefix_2 = 0xa2;
   }
-  elsif ($pkt_type eq CONFIG_SET) {
+  elsif ($pkt_type eq 'config_set') {
     $pkt_prefix_2 = 0xae;
   }
 
-  my $msgid = pack('s', 0) . pack('s', $pkt_type);
+  my $msgid = pack('s', 0) . pack('s', $message_id->{$pkt_type});
 
   my $pkt_prefix_data =
     pack('C*', @pkt_prefix_1)
@@ -350,69 +367,34 @@ sub decode_head($self, $data) {
     Version        => $head[1],
     SessionID      => $head[4],
     Sequence       => $head[5],
-    MessageId      => $head[8],
+    Message_Code    => $head[8],
     Content_Length => $head[9],
     Channel        => $head[6],
     EndFlag        => $head[7],
   };
+  $head->{'MessageId'} = $message_id_reverse->{$head[8]} if $head[8] && $message_id_reverse->{$head[8]};
   $self->sid($head[4]);
   return $head;
 }
 
 sub send_head($self, $msgid, $parameters) {
-  if ($msgid != LOGIN_REQ2 and defined $parameters) {
-    $parameters->{SessionID} = $self->_build_packet_sid();
-  }
-
-  if ($msgid == MONITOR_REQ) {
-    $parameters->{SessionID} = sprintf("0x%02X", $self->sid);
-  }
-
   my $cmd_data = $self->build_packet($msgid, $parameters);
-
   $self->stream->write($cmd_data);
   if ($self->debug) {
     warn "==> sending ${\length $cmd_data} byte request\n";
   }
 }
 
-async sub send_command($self, $msgid, $parameters) {
+async sub send_command($self, $msgid, $resid, $parameters) {
   my $p = Mojo::Promise->new;
-  $self->once(packet => sub($, $data, $head) {
-    if ($data) {
-      my $json;
-      # trim off garbage at line ending
-      $data =~ s/([\x00-\x20]*)\Z//ms;
-
-      eval {
-        # code that might throw exception
-        $json = decode_json($data);
-      };
-      if ($@) {
-        # report the exception and do something about it
-        $p->reject("decode_json exception: $@\n");
-        return;
-      }
-
-      my $code = $json->{'Ret'};
-
-      if (defined($code)) {
-        if (defined(ERROR_CODES->{$code})) {
-          $json->{'RetMessage'} = ERROR_CODES->{$code};
-        }
-      }
-
-      $p->resolve($json);
-    }
-    $p->reject("no response");
-  });
+  $self->once($resid => sub($, $data, $head) {$p->resolve($data);});
   $self->send_head($msgid, $parameters);
   return $p;
 }
 
-async sub send_download_command($self, $msgid, $parameters, $file) {
+async sub send_download_command($self, $msgid, $resid, $parameters, $file) {
   my $p = Mojo::Promise->new;
-  $self->once(packet => sub ($, $data, $head) {
+  $self->once($resid => sub ($, $data, $head) {
     if ($self->debug) {
       warn ">>> writng > $file\n";
     }
@@ -426,17 +408,17 @@ async sub send_download_command($self, $msgid, $parameters, $file) {
 }
 
 async sub send_stream_command {
-  my ($self, $msgid, $parameters, $file, $mode) = @_;
+  my ($self, $msgid, $dataid, $parameters, $file, $mode) = @_;
   $mode ||= '>';
   my $p = Mojo::Promise->new;
   if ($self->debug) {
     warn ">>> writing $mode $file\n";
   }
   open my ($fh), $mode, $file;
-  $self->on(packet => sub ($, $data, $head) {
+  $self->on($dataid => sub ($, $data, $head) {
     print $fh $data;
-    if (!$head->{Content_Length} || ($head->{MessageId} != DOWNLOAD_DATA && $head->{MessageId} != MONITOR_DATA)) {
-      $self->unsubscribe('packet');
+    if ($head->{EndFlag}) {
+      $self->unsubscribe($dataid);
       close $fh;
       $p->resolve(1);
     }
@@ -487,12 +469,12 @@ async sub cmd_login($self) {
     PassWord    => $self->_make_hash($self->password),
     UserName    => $self->user
   };
-  $self->send_command(LOGIN_REQ2, $pkt);
+  $self->send_command('login_req', 'login_rsp', $pkt);
 }
 
 async sub cmd_system_info($self) {
   my $pkt = { Name => 'SystemInfo', };
-  my $systeminfo = $self->send_command(SYSINFO_REQ, $pkt);
+  my $systeminfo = $self->send_command('sysinfo_req', 'sysinfo_rsp', $pkt);
   return $systeminfo;
 }
 
@@ -501,7 +483,7 @@ async sub cmd_alarm_info($self, $parameters) {
     Name      => 'AlarmInfo',
     AlarmInfo => $parameters,
   };
-  return $self->send_command(ALARM_REQ, $pkt);
+  return $self->send_command('alarm_req', 'alarm_rsp', $pkt);
 }
 
 async sub cmd_net_alarm($self) {
@@ -512,24 +494,7 @@ async sub cmd_net_alarm($self) {
       State => 1,
     },
   };
-  return $self->send_command(NET_ALARM_REQ, $pkt);
-}
-
-async sub cmd_alarm_center_message($self) {
-  my $pkt = {
-    Name              => 'NetAlarmCenter',
-    NetAlarmCenterMsg => {
-      Address   => "0x0B0A060A",
-      Channel   => 0,
-      Descrip   => "",
-      Event     => "MotionDetect",
-      SerialID  => "003344236523",
-      StartTime => "2010-06-24 17:04:22",
-      Status    => "Stop",
-      Type      => "Alarm",
-    },
-  };
-  return $self->send_command(ALARMCENTER_MSG_REQ, $pkt);
+  return $self->send_command('net_alarm_req', 'net_alarm_rsp', $pkt);
 }
 
 async sub cmd_net_keyboard($self, $parameters) {
@@ -537,40 +502,40 @@ async sub cmd_net_keyboard($self, $parameters) {
     Name          => 'OPNetKeyboard',
     OPNetKeyboard => $parameters,
   };
-  return $self->send_command(NET_KEYBOARD_REQ, $pkt);
+  return $self->send_command('net_keyboard_req', 'net_keyboard_rsp', $pkt);
 }
 
 async sub cmd_users($self) {
-  return $self->send_command(USERS_GET, {});
+  return $self->send_command('users_get', 'users_get_rsp', {});
 }
 
 async sub cmd_groups($self) {
-  return $self->send_command(GROUPS_GET, {});
+  return $self->send_command('groups_get', 'groups_get_rsp', {});
 }
 
 async sub cmd_storage_info($self) {
   my $pkt = { Name => 'StorageInfo' };
-  return $self->send_command(SYSINFO_REQ, $pkt);
+  return $self->send_command('sysinfo_req', 'sysinfo_rsp', $pkt);
 }
 
 async sub cmd_work_state($self) {
   my $pkt = { Name => 'WorkState', };
-  return $self->send_command(SYSINFO_REQ, $pkt);
+  return $self->send_command('sysinfo_req', 'sysinfo_rsp', $pkt);
 }
 
 async sub cmd_snap($self, $out) {
   my $pkt = { Name => 'OPSNAP' };
-  return $self->send_download_command(NET_SNAP_REQ, $pkt, $out);
+  return $self->send_download_command('net_snap_req', 'net_snap_rsp_data', $pkt, $out);
 }
 
 async sub cmd_empty($self) {
   my $pkt = { Name => '' };
-  return $self->send_command(SYSINFO_REQ, $pkt);
+  return $self->send_command('sysinfo_req', 'sysinfo_rsp', $pkt);
 }
 
 async sub cmd_keepalive($self) {
   my $pkt = { Name => 'KeepAlive' };
-  return $self->send_command(KEEPALIVE_REQ, $pkt);
+  return $self->send_command('keepalive_req', 'keepalive_rsp', $pkt);
 }
 
 async sub cmd_monitor_claim($self) {
@@ -586,7 +551,7 @@ async sub cmd_monitor_claim($self) {
       }
     }
   };
-  return $self->send_command(MONITOR_CLAIM, $pkt);
+  return $self->send_command('monitor_claim', 'monitor_claim_rsp', $pkt);
 }
 
 async sub cmd_monitor_stop($self) {
@@ -603,7 +568,7 @@ async sub cmd_monitor_stop($self) {
       }
     }
   };
-  return $self->send_command(MONITOR_CLAIM, $pkt);
+  return $self->send_command('monitor_claim', 'monitor_claim_rsp', $pkt);
 }
 
 async sub cmd_monitor_start($self, $file, $mode) {
@@ -620,9 +585,7 @@ async sub cmd_monitor_start($self, $file, $mode) {
       }
     }
   };
-  $SIG{PIPE} = sub { $self->cmd_monitor_stop };
-  my $ret = await $self->send_stream_command(MONITOR_REQ, $pkt, $file, $mode);
-  $SIG{PIPE} = 'IGNORE';
+  my $ret = await $self->send_stream_command('monitor_req', 'monitor_data', $pkt, $file, $mode);
   return $ret;
 }
 
@@ -651,7 +614,7 @@ async sub cmd_monitor_start($self, $file, $mode) {
 #
 #   my $cmd_data = $self->build_packet($pkt_type, $pkt);
 #
-#   $self->{socket}->send($cmd_data); # TODO
+#   $self->{socket}->send($cmd_data);
 #   my $reply = $self->recv_head();
 #   my $out = $self->recv_data($reply);
 #
@@ -666,7 +629,7 @@ async sub cmd_monitor_start($self, $file, $mode) {
 
 async sub cmd_system_function($self) {
   my $pkt = { Name => 'SystemFunction' };
-  return $self->send_command(ABILITY_REQ, $pkt);
+  return $self->send_command('ability_req', 'ability_rsp', $pkt);
 }
 
 async sub cmd_file_query($self, $parameters) {
@@ -674,12 +637,12 @@ async sub cmd_file_query($self, $parameters) {
     Name        => 'OPFileQuery',
     OPFileQuery => $parameters,
   };
-  return $self->send_command(FILESEARCH_REQ, $pkt);
+  return $self->send_command('filesearch_req', 'filesearch_rsp', $pkt);
 }
 
 async sub cmd_oem_info($self) {
   my $pkt = { Name => 'OEMInfo' };
-  return $self->send_command(SYSINFO_REQ, $pkt);
+  return $self->send_command('sysinfo_req', 'sysinfo_rsp', $pkt);
 }
 
 async sub cmd_playback($self, $parameters) {
@@ -687,7 +650,7 @@ async sub cmd_playback($self, $parameters) {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
-  return $self->send_command(PLAY_CLAIM, $pkt);
+  return $self->send_command('play_claim', 'play_claim_rsp', $pkt);
 }
 
 async sub cmd_playback_download_start($self, $parameters, $file, $mode) {
@@ -695,7 +658,7 @@ async sub cmd_playback_download_start($self, $parameters, $file, $mode) {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
   };
-  return $self->send_stream_command(PLAY_REQ, $pkt, $file, $mode);
+  return $self->send_stream_command('play_req', 'download_data', $pkt, $file, $mode);
 }
 
 async sub cmd_log_query($self, $parameters) {
@@ -703,7 +666,7 @@ async sub cmd_log_query($self, $parameters) {
     Name       => 'OPLogQuery',
     OPLogQuery => $parameters,
   };
-  return $self->send_command(LOGSEARCH_REQ, $pkt);
+  return $self->send_command('logsearch_req', 'logsearch_rsp', $pkt);
 }
 
 # TODO not working
@@ -714,11 +677,11 @@ async sub cmd_log_query($self, $parameters) {
 #   return $self->send_download_command(LOG_EXPORT_REQ, $pkt, $file);
 # }
 
-async sub cmd_export_config {
+async sub cmd_config_export {
   my ($self, $file) = @_;
   $file ||= 'conf.zip';
   my $pkt = { Name => '' };
-  return $self->send_download_command(CONFIG_EXPORT_REQ, $pkt, $file);
+  return $self->send_download_command('config_export_req', 'config_export_rsp_data', $pkt, $file);
 }
 
 async sub cmd_storage_manager($self, $parameters) {
@@ -727,22 +690,22 @@ async sub cmd_storage_manager($self, $parameters) {
     OPStorageManager => $parameters,
     SessionID        => $self->_build_packet_sid(),
   };
-  return $self->send_command(DISKMANAGER_REQ, $pkt);
+  return $self->send_command('diskmanager_req', 'diskmanager_rsp', $pkt);
 }
 
 async sub cmd_config_get($self, $parameters) {
   my $pkt = { Name => $parameters };
-  return $self->send_command(CONFIG_GET, $pkt);
+  return $self->send_command('config_get', 'config_get_rsp', $pkt);
 }
 
 async sub cmd_config_set($self, $name, $value) {
   my $pkt = { Name => $name, $name => $value };
-  return $self->send_command(CONFIG_SET, $pkt);
+  return $self->send_command('config_set', 'config_set_rsp', $pkt);
 }
 
 async sub cmd_ptz_control($self, $parameters) {
   my $pkt = { Name => 'OPPTZControl', OPPTZControl => $parameters };
-  return $self->send_command(PTZ_REQ, $pkt);
+  return $self->send_command('ptz_req', 'ptz_rsp', $pkt);
 }
 
 async sub cmd_ptz {
@@ -881,7 +844,7 @@ async sub cmd_ptz_abs($self, $x, $y) {
 #   $select->add($self->{socket});
 #   while (1) {
 #     $! = 0;
-#     my @ready = $select->can_read(20); # TODO
+#     my @ready = $select->can_read(20);
 #     last if $!;
 #     if (@ready) {
 #       my $reply_head = $self->recv_head();
@@ -912,11 +875,23 @@ sub _get_transcode_args($, $file, $seconds = 0) {
 
 async sub cmd_monitor {
   my ($self, $file, $seconds) = @_;
-  $seconds ||= 5;
-  my $res = await $self->cmd_monitor_claim;
+  my $c2 = $self->clone;
+  await $c2->connect;
+  my $res = await $c2->cmd_login;
   return $res unless $res->{Ret} == 100;
-  my ($f, $m) = $self->_get_transcode_args($file, $seconds);
-  return $self->cmd_monitor_start($f, $m);
+  $res = await $c2->cmd_monitor_claim;
+  return $res unless $res->{Ret} == 100;
+  my ($f, $m) = $c2->_get_transcode_args($file, $seconds);
+  if ($seconds) {
+    my $p = Mojo::Promise->new;
+    Mojo::IOLoop->timer($seconds + 0.5 => sub {
+      $c2->disconnect;
+      $p->resolve(1);
+    });
+    return Mojo::Promise->any($c2->cmd_monitor_start($f, $m), $p);
+  } else {
+    $c2->cmd_monitor_start($f, $m);
+  }
 }
 
 sub _parse_relative_time($self, $ts) {
