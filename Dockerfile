@@ -6,6 +6,7 @@ RUN apk --no-cache add \
       gcc \
       make \
       musl-dev \
+      jq \
       perl-app-cpanminus \
       perl-dev \
       perl-io-socket-ssl \

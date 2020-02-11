@@ -8,12 +8,12 @@ use Getopt::Long;
 use Mojo::JSON qw(encode_json decode_json);
 
 GetOptions(
-  "help|h"          => \my $help,
-  "user=s"          => \my $user,
-  "pass=s"          => \my $pass,
-  "host=s"          => \my $host,
-  "port=s"          => \my $port,
-  "debug|d"         => \my $debug,
+  "help|h"  => \my $help,
+  "user=s"  => \my $user,
+  "pass=s"  => \my $pass,
+  "host=s"  => \my $host,
+  "port=s"  => \my $port,
+  "debug|d" => \my $debug,
 );
 
 $host ||= $ENV{DVRIP_HOST};
@@ -48,8 +48,7 @@ Commands:
   monitor                 <filename.h264|mkv|mp4|jpg> [seconds] (any ffmpeg format)
   ls                      <start> <end> (formats: YYYY-MM-DD HH:MM:SS or epoch or negative offset from now)
   download                { <file from ls> } <filename.h264|mkv|mp4|jpg> (any ffmpeg format)
-  set_time                <nortc>
-  export_config           <filename.tar.gz>
+  config_export           <filename.zip>
   ptz                     <up|down|left|right> <ms>
   ptz_set_preset          <num>
   ptz_goto_preset         <num>
@@ -68,19 +67,6 @@ Commands:
                           Uart
   config_set              <config> <value | json>
 
-  alarm_info              { ... }
-  net_keyboard            { ... }
-  storage_manager         { "Action: "Clear/Recover/Partition/SetType", ... } - see OPStorageManager
-  file_query              { ... } - see OPFileQuery
-  log_query               { ... } - see OPLogQuery
-  ptz_control             { ... } - see OPPTZControl
-
-  alarm_center_message    (not working)
-  net_alarm               (not working)
-
-  work_state              (invalid)
-  export_log              (invalid)
-  oem_info                (invalid)
 USAGE
 }
 
@@ -105,11 +91,21 @@ async sub main {
   die "invalid command '$cmd'\n" unless $cam->can($method);
   my @params = map {/^[{\[]/ ? decode_json $_ : $_} @ARGV;
 
-  $res = await $cam->$method(@params);
-
-  if ($res != 1) {
-    print encode_json($res);
+  if ($cmd eq 'alarm_start') {
+    my $stream = $cam->$method;
+    $stream->on(alarm => sub($, $a) {print encode_json($a) . "\n"});
+    my $p = Mojo::Promise->new;
+    return $p;
+  }
+  else {
+    $res = await $cam->$method(@params);
+    if ($res != 1) {
+      print encode_json($res);
+    }
   }
 }
 
-main()->catch(sub { warn @_; exit -1 })->wait;
+main()->catch(sub {
+  warn @_;
+  exit -1
+})->wait;

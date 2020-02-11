@@ -235,11 +235,11 @@ our $error_codes = {
 
 sub clone($self) {
   $self->new(
-    host => $self->host,
-    port => $self->port,
-    user => $self->user,
+    host     => $self->host,
+    port     => $self->port,
+    user     => $self->user,
     password => $self->password,
-    debug => $self->debug,
+    debug    => $self->debug,
   );
 }
 
@@ -255,14 +255,20 @@ async sub connect($self) {
   Mojo::IOLoop->client(address => $self->host, port => $self->port, sub($, $err, $stream) {
     if ($err) {
       $p->reject("Cannot connect to camera at ${\$self->host}:${\$self->port}: $err\n");
-    } else {
+    }
+    else {
       $self->stream($stream);
       $stream->on(error => sub {$self->stream_error($_[1])});
       $stream->on(read => sub {$self->stream_read($_[1])});
+      $self->enable_keepalive;
       $p->resolve($self);
     }
   });
   return $p;
+}
+
+sub enable_keepalive($self, $timeout = 20) {
+  Mojo::IOLoop->recurring($timeout => sub {$self->cmd_keepalive});
 }
 
 sub stream_read($self, $bytes) {
@@ -367,7 +373,7 @@ sub decode_head($self, $data) {
     Version        => $head[1],
     SessionID      => $head[4],
     Sequence       => $head[5],
-    Message_Code    => $head[8],
+    Message_Code   => $head[8],
     Content_Length => $head[9],
     Channel        => $head[6],
     EndFlag        => $head[7],
@@ -381,7 +387,7 @@ sub send_head($self, $msgid, $parameters) {
   my $cmd_data = $self->build_packet($msgid, $parameters);
   $self->stream->write($cmd_data);
   if ($self->debug) {
-    warn "==> sending ${\length $cmd_data} byte request\n";
+    warn "==> sending ${\length $cmd_data} byte $msgid request\n";
   }
 }
 
@@ -394,7 +400,7 @@ async sub send_command($self, $msgid, $resid, $parameters) {
 
 async sub send_download_command($self, $msgid, $resid, $parameters, $file) {
   my $p = Mojo::Promise->new;
-  $self->once($resid => sub ($, $data, $head) {
+  $self->once($resid => sub($, $data, $head) {
     if ($self->debug) {
       warn ">>> writng > $file\n";
     }
@@ -415,7 +421,7 @@ async sub send_stream_command {
     warn ">>> writing $mode $file\n";
   }
   open my ($fh), $mode, $file;
-  $self->on($dataid => sub ($, $data, $head) {
+  $self->on($dataid => sub($, $data, $head) {
     print $fh $data;
     if ($head->{EndFlag}) {
       $self->unsubscribe($dataid);
@@ -741,7 +747,7 @@ async sub cmd_ptz {
   });
   return $res unless $res->{Ret} == 100;
   my $p = Mojo::Promise->new;
-  Mojo::IOLoop->timer($ms/1000, sub {
+  Mojo::IOLoop->timer($ms / 1000, sub {
     $self->cmd_ptz_control({
       "Command"   => $direction,
       "Parameter" => {
@@ -764,7 +770,7 @@ async sub cmd_ptz {
       }
     })->then(sub {
       if ($remainder > 0 && $_[0]->{Ret} == 100) {
-        $self->cmd_ptz($direction, $remainder)->then(sub { $p->resolve($_[0]) });
+        $self->cmd_ptz($direction, $remainder)->then(sub {$p->resolve($_[0])});
       }
       else {
         $p->resolve($res);
@@ -829,33 +835,17 @@ async sub cmd_ptz_abs($self, $x, $y) {
   await $self->cmd_ptz(down => $y);
 }
 
-# TODO not reworked for mojo/non-blocking yet
-# sub cmd_alarm_start($self, $cb = sub {print encode_json($_[1]) . "\n"}) {
-#   my $pkt = {
-#     Name      => '',
-#     SessionID => $self->_build_packet_sid(),
-#   };
-#
-#   my $res = $self->send_command(GUARD_REQ, $pkt);
-#   return $res unless $res->{Ret} == 100;
-#
-#   # wait for alarms
-#   my $select = IO::Select->new;
-#   $select->add($self->{socket});
-#   while (1) {
-#     $! = 0;
-#     my @ready = $select->can_read(20);
-#     last if $!;
-#     if (@ready) {
-#       my $reply_head = $self->recv_head();
-#       my $out = $self->recv_data($reply_head);
-#       # trim off garbage at line ending
-#       $out =~ s/([\x00-\x20]*)\Z//ms;
-#       $cb->($self, decode_json($out)->{AlarmInfo});
-#     }
-#     $self->cmd_keepalive;
-#   }
-# }
+sub cmd_alarm_start($self) {
+  my $pkt = {
+    Name      => '',
+    SessionID => $self->_build_packet_sid(),
+  };
+
+  my $stream = Mojo::EventEmitter->new;
+  $self->on(guard_rsp => sub($, $data, $head) {$stream->emit(alarm => $data)});
+  $self->send_head(guard_req => $pkt);
+  return $stream;
+}
 
 sub _get_transcode_args($, $file, $seconds = 0) {
   $file ||= 'out.h264';
@@ -889,7 +879,8 @@ async sub cmd_monitor {
       $p->resolve(1);
     });
     return Mojo::Promise->any($c2->cmd_monitor_start($f, $m), $p);
-  } else {
+  }
+  else {
     $c2->cmd_monitor_start($f, $m);
   }
 }
