@@ -413,7 +413,7 @@ async sub send_download_command($self, $msgid, $resid, $parameters, $file) {
   return $p;
 }
 
-async sub send_stream_command {
+sub send_stream_command {
   my ($self, $msgid, $dataid, $parameters, $file, $mode) = @_;
   $mode ||= '>';
   my $p = Mojo::Promise->new;
@@ -421,16 +421,18 @@ async sub send_stream_command {
     warn ">>> writing $mode $file\n";
   }
   open my ($fh), $mode, $file;
+  my $cancelToken = Mojo::Promise->new;
+  $cancelToken->finally(sub {
+    $self->unsubscribe($dataid);
+    close $fh;
+    $p->resolve(1);
+  });
   $self->on($dataid => sub($, $data, $head) {
     print $fh $data;
-    if ($head->{EndFlag}) {
-      $self->unsubscribe($dataid);
-      close $fh;
-      $p->resolve(1);
-    }
+    $cancelToken->resolve if $head->{EndFlag};
   });
   $self->send_head($msgid, $parameters);
-  return $p;
+  return wantarray ? ($p, $cancelToken) : $p;
 }
 
 sub _md5_hash($self, $message) {
@@ -577,7 +579,7 @@ async sub cmd_monitor_stop($self) {
   return $self->send_command('monitor_claim', 'monitor_claim_rsp', $pkt);
 }
 
-async sub cmd_monitor_start($self, $file, $mode) {
+sub cmd_monitor_start($self, $file, $mode) {
   my $pkt = {
     Name      => 'OPMonitor',
     SessionID => $self->_build_packet_sid(),
@@ -591,8 +593,7 @@ async sub cmd_monitor_start($self, $file, $mode) {
       }
     }
   };
-  my $ret = await $self->send_stream_command('monitor_req', 'monitor_data', $pkt, $file, $mode);
-  return $ret;
+  return $self->send_stream_command('monitor_req', 'monitor_data', $pkt, $file, $mode);
 }
 
 # TODO not updated for mojo/async
@@ -659,7 +660,7 @@ async sub cmd_playback($self, $parameters) {
   return $self->send_command('play_claim', 'play_claim_rsp', $pkt);
 }
 
-async sub cmd_playback_download_start($self, $parameters, $file, $mode) {
+sub cmd_playback_download_start($self, $parameters, $file, $mode) {
   my $pkt = {
     Name       => 'OPPlayBack',
     OPPlayBack => $parameters,
@@ -873,15 +874,18 @@ async sub cmd_monitor {
   return $res unless $res->{Ret} == 100;
   my ($f, $m) = $c2->_get_transcode_args($file, $seconds);
   if ($seconds) {
+    my $cancel;
     my $p = Mojo::Promise->new;
     Mojo::IOLoop->timer($seconds + 0.5 => sub {
+      $cancel->resolve;
       $c2->disconnect;
       $p->resolve(1);
     });
-    return Mojo::Promise->any($c2->cmd_monitor_start($f, $m), $p);
+    (undef, $cancel) = $c2->cmd_monitor_start($f, $m);
+    return $p;
   }
   else {
-    $c2->cmd_monitor_start($f, $m);
+    return $c2->cmd_monitor_start($f, $m);
   }
 }
 
