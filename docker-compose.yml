@@ -1,0 +1,17 @@
+version: "2"
+
+services:
+  
+  dev:
+    image: kevineye/dcrip-ctl:dev
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      MOJO_MODE: development
+      DVRIP_HOST: 192.168.1.100
+      DVRIP_PASS: x
+      TZ: Americas/New_York
+    volumes:
+      - .:/app
+    entrypoint: sh
