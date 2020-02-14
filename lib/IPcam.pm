@@ -843,8 +843,8 @@ sub cmd_alarm_start($self) {
   };
 
   my $stream = Mojo::EventEmitter->new;
-  $self->on(guard_rsp => sub($, $data, $head) {$stream->emit(alarm => $data)});
-  $self->send_head(guard_req => $pkt);
+  $self->on(alarm_req => sub($, $data, $head) {$stream->emit(alarm => $data->{AlarmInfo})});
+  $self->send_command('guard_req', 'guard_rsp', $pkt);
   return $stream;
 }
 
