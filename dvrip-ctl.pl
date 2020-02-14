@@ -1,10 +1,11 @@
 #!/usr/bin/perl
 use Mojo::Base -strict, -signatures, -async_await;
 
-use lib 'lib';
-use IPcam;
+use FindBin '$RealBin';
+use lib "$RealBin/lib";
 
 use Getopt::Long;
+use IPcam;
 use Mojo::JSON qw(encode_json decode_json);
 
 GetOptions(
