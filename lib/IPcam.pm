@@ -10,6 +10,7 @@ use Time::Local;
 use Time::HiRes qw(usleep);
 
 has stream => undef;
+has alarm_stream => undef;
 has host => undef;
 has port => 34567;
 has user => 'admin';
@@ -837,15 +838,17 @@ async sub cmd_ptz_abs($self, $x, $y) {
 }
 
 sub cmd_alarm_start($self) {
-  my $pkt = {
-    Name      => '',
-    SessionID => $self->_build_packet_sid(),
-  };
+  unless ($self->alarm_stream) {
+    my $pkt = {
+      Name      => '',
+      SessionID => $self->_build_packet_sid(),
+    };
 
-  my $stream = Mojo::EventEmitter->new;
-  $self->on(alarm_req => sub($, $data, $head) {$stream->emit(alarm => $data->{AlarmInfo})});
-  $self->send_command('guard_req', 'guard_rsp', $pkt);
-  return $stream;
+    my $stream = $self->alarm_stream(Mojo::EventEmitter->new);
+    $self->on(alarm_req => sub($, $data, $head) {$stream->emit(alarm => $data->{AlarmInfo})});
+    $self->send_command('guard_req', 'guard_rsp', $pkt);
+  }
+  return $self->alarm_stream;
 }
 
 sub _get_transcode_args($, $file, $seconds = 0) {
