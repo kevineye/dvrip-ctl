@@ -259,6 +259,7 @@ async sub connect($self) {
     }
     else {
       $self->stream($stream);
+      $stream->timeout(0);
       $stream->on(error => sub {$self->stream_error($_[1])});
       $stream->on(read => sub {$self->stream_read($_[1])});
       $self->enable_keepalive;
@@ -844,7 +845,8 @@ sub cmd_alarm_start($self) {
       SessionID => $self->_build_packet_sid(),
     };
 
-    my $stream = $self->alarm_stream(Mojo::EventEmitter->new);
+    my $stream = Mojo::EventEmitter->new;
+    $self->alarm_stream($stream);
     $self->on(alarm_req => sub($, $data, $head) {$stream->emit(alarm => $data->{AlarmInfo})});
     $self->send_command('guard_req', 'guard_rsp', $pkt);
   }
