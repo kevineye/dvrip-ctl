@@ -8,6 +8,8 @@ has ha_url => undef;
 has ha_sensor_name => sub($self) { my $n = lc $self->name; $n =~ s{[^a-z0-9]+}{_}; $n };
 has ua => sub {Mojo::UserAgent->new->max_redirects(3)};
 
+$IPCam::Alarm::types->{home_assistant} = __PACKAGE__;
+
 sub alarm($self, $alarm) {
   $self->ua->post_p(
     $self->ha_url . "/api/states/binary_sensor." . $self->ha_sensor_name,

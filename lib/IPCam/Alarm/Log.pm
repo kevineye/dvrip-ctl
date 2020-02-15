@@ -6,6 +6,8 @@ use Mojo::Log;
 
 has log => sub {Mojo::Log->new};
 
+$IPCam::Alarm::types->{log} = __PACKAGE__;
+
 sub alarm($self, $alarm) {
   $self->log->info($self->name . " ==> " . encode_json $alarm);
 }

@@ -1,0 +1,19 @@
+cameras:
+  cam_1:
+    host: x
+    password: x
+    debug: 0
+
+alarms:
+  - type: log
+    cameras: [ cam_1 ]
+  - type: slack
+    cameras: [ cam_1 ]
+    name: coop camera
+    slack_url: x
+  - type: home_assistant
+    cameras: [ cam_1 ]
+    name: Coop Motion
+    ha_sensor_name: cam_1_motion
+    ha_url: x
+    ha_token: x

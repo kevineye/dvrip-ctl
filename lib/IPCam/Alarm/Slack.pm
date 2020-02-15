@@ -6,6 +6,8 @@ use Mojo::UserAgent;
 has slack_url => undef;
 has ua => sub {Mojo::UserAgent->new->max_redirects(3)};
 
+$IPCam::Alarm::types->{slack} = __PACKAGE__;
+
 # TODO post picture
 # TODO use chat.postMessage and chat.update to update message when mostion stops
 # -- https://api.slack.com/methods/chat.postMessage
