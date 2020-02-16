@@ -17,8 +17,9 @@ has user => 'admin';
 has password => undef;
 has sid => 0;
 has sequence => 0;
-has debug => 0;
 has hashtype => 'md5based';
+has log => sub {Mojo::Log->new};
+has reconnect_delay => 30;
 
 our $message_id = {
   login_req                      => 1000, # 999
@@ -240,30 +241,44 @@ sub clone($self) {
     port     => $self->port,
     user     => $self->user,
     password => $self->password,
-    debug    => $self->debug,
   );
 }
 
 sub disconnect($self) {
-  $self->stream && $self->stream->close;
+  if ($self->stream) {
+    $self->stream->unsubscribe('close');
+    $self->stream->close;
+  }
 }
 
-async sub connect($self) {
+async sub connect {
+  my ($self, $reconnect) = @_;
   $self->{buffer} = '';
   $self->{recv_header} = undef;
 
   my $p = Mojo::Promise->new;
   Mojo::IOLoop->client(address => $self->host, port => $self->port, sub($, $err, $stream) {
     if ($err) {
+      $self->log->error("cannot connect to ${\$self->host}:${\$self->port}");
+      $self->wait_reconnect;
       $p->reject("Cannot connect to camera at ${\$self->host}:${\$self->port}: $err\n");
     }
     else {
+      $self->log->info("connected to ${\$self->host}:${\$self->port}");
       $self->stream($stream);
       $stream->timeout(0);
       $stream->on(error => sub {$self->stream_error($_[1])});
       $stream->on(read => sub {$self->stream_read($_[1])});
-      $self->enable_keepalive;
-      $p->resolve($self);
+      $stream->on(close => sub {$self->stream_close});
+      if ($reconnect) {
+        return $self->cmd_login->then(sub {
+          $self->_cmd_alarm_start if $self->alarm_stream;
+          $p->resolve($self)
+        });
+      } else {
+        $self->enable_keepalive;
+        $p->resolve($self);
+      }
     }
   });
   return $p;
@@ -287,30 +302,45 @@ sub stream_read($self, $bytes) {
         $data = decode_json($data);
         $data->{'RetMessage'} = $error_codes->{$data->{'Ret'}} if $data->{'Ret'} && $error_codes->{$data->{'Ret'}};
       }
-      if ($self->debug) {
-        warn "<== received $header->{MessageId} packet with $header->{Content_Length} bytes of data\n";
-      }
+      $self->log->debug("<== received $header->{MessageId} packet with $header->{Content_Length} bytes of data");
       my $event_name = $header->{MessageId} || 'packet';
       $self->emit($event_name => ($data, $header));
     }
     elsif (!$self->{recv_header} && length $self->{buffer} >= 20) {
       $self->{recv_header} = $self->decode_head(substr $self->{buffer}, 0, 20);
       substr($self->{buffer}, 0, 20) = '';
-      if ($self->debug) {
-        warn "<== received complete header: " . encode_json($self->{recv_header}) . "\n";
-      }
+      $self->log->debug("<== received complete header: " . encode_json($self->{recv_header}));
     }
     else {
-      if ($self->debug && length $self->{buffer} > 0) {
-        warn "<-- buffered ${\length $self->{buffer}} bytes, but waiting for more...\n";
+      if (length $self->{buffer} > 0) {
+        $self->log->debug("<-- buffered ${\length $self->{buffer}} bytes, but waiting for more...");
       }
       last;
     }
   }
 }
 
-sub stream_error($, $err) {
-  die "connection error: $err\n";
+sub wait_reconnect($self) {
+  if ($self->reconnect_delay > 0) {
+    Mojo::IOLoop->timer($self->reconnect_delay => sub {
+      unless ($self->sid) {
+        $self->log->info("reconnecting to ${\$self->host}:${\$self->port}");
+        $self->connect(1);
+      }
+    });
+  }
+}
+
+sub stream_close($self) {
+  $self->log->warn("connection closed");
+  $self->sid(undef);
+  $self->wait_reconnect;
+}
+
+sub stream_error($self, $err) {
+  $self->log->fatal("connection error: $err");
+  $self->sid(undef);
+  $self->wait_reconnect;
 }
 
 sub _build_packet_sid($self) {
@@ -388,9 +418,7 @@ sub decode_head($self, $data) {
 sub send_head($self, $msgid, $parameters) {
   my $cmd_data = $self->build_packet($msgid, $parameters);
   $self->stream->write($cmd_data);
-  if ($self->debug) {
-    warn "==> sending ${\length $cmd_data} byte $msgid request\n";
-  }
+  $self->log->debug("==> sending ${\length $cmd_data} byte $msgid request");
 }
 
 async sub send_command($self, $msgid, $resid, $parameters) {
@@ -403,9 +431,7 @@ async sub send_command($self, $msgid, $resid, $parameters) {
 async sub send_download_command($self, $msgid, $resid, $parameters, $file) {
   my $p = Mojo::Promise->new;
   $self->once($resid => sub($, $data, $head) {
-    if ($self->debug) {
-      warn ">>> writng > $file\n";
-    }
+    $self->log->debug(">>> writng > $file");
     open my $fh, '>', $file;
     print $fh $data;
     close $fh;
@@ -419,9 +445,7 @@ sub send_stream_command {
   my ($self, $msgid, $dataid, $parameters, $file, $mode) = @_;
   $mode ||= '>';
   my $p = Mojo::Promise->new;
-  if ($self->debug) {
-    warn ">>> writing $mode $file\n";
-  }
+  $self->log->debug(">>> writing $mode $file");
   open my ($fh), $mode, $file;
   my $cancelToken = Mojo::Promise->new;
   $cancelToken->finally(sub {
@@ -840,17 +864,20 @@ async sub cmd_ptz_abs($self, $x, $y) {
 
 sub cmd_alarm_start($self) {
   unless ($self->alarm_stream) {
-    my $pkt = {
-      Name      => '',
-      SessionID => $self->_build_packet_sid(),
-    };
-
     my $stream = Mojo::EventEmitter->new;
     $self->alarm_stream($stream);
     $self->on(alarm_req => sub($, $data, $head) {$stream->emit(alarm => $data->{AlarmInfo})});
-    $self->send_command('guard_req', 'guard_rsp', $pkt);
+    $self->_cmd_alarm_start;
   }
   return $self->alarm_stream;
+}
+
+sub _cmd_alarm_start($self) {
+  my $pkt = {
+    Name      => '',
+    SessionID => $self->_build_packet_sid(),
+  };
+  $self->send_command('guard_req', 'guard_rsp', $pkt);
 }
 
 sub _get_transcode_args($, $file, $seconds = 0) {

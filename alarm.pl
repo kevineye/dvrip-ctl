@@ -13,7 +13,7 @@ my $config = app->stash('config');
 my $cameras = {};
 
 async sub init_camera($id) {
-  my $cam = $cameras->{$id} = IPcam->new(%{$config->{cameras}{$id}});
+  my $cam = $cameras->{$id} = IPcam->new(log => app->log, %{$config->{cameras}{$id}});
   await $cam->connect;
   await $cam->cmd_login;
   die "cannot connect to $id (${\$cam->host}:${\$cam->port})\n" unless $cam->sid;
@@ -26,9 +26,16 @@ async sub startup {
   for my $conf (@{$config->{alarms}}) {
     my $type = delete $conf->{type};
     my @cameras = @{delete $conf->{cameras} || []};
-    IPCam::Alarm->new_of_type($type, name => $_, camera => $cameras->{$_}, %$conf)->start for @cameras;
+    IPCam::Alarm->new_of_type($type, name => $_, log => app->log, camera => $cameras->{$_}, %$conf)->start for @cameras;
   }
 
+  # simulate connection close
+  # Mojo::IOLoop->timer(10 => sub {
+  #   warn "shut it down!";
+  #   $cameras->{cam_1}->stream->close;
+  # });
+
+  # simulate stream of motion events
   # my $on = 1;
   # my $as = $cameras->{cam_1}->alarm_stream;
   # Mojo::IOLoop->recurring(10 => sub {
