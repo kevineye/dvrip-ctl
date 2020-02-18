@@ -26,8 +26,6 @@ COPY . /app
 
 WORKDIR /app
 
-ENTRYPOINT ["dvrip-ctl"]
-CMD ["-h"]
+EXPOSE 3000
 
-#EXPOSE 3000
-#CMD [ "morbo", "-w", "app.pl", "-w", "lib", "-w", "/conf/streams.yaml", "app.pl" ]
+CMD [ "morbo", "-w", "ipcam.pl", "-w", "lib", "-w", "/app/ipcam.yaml", "ipcam.pl" ]
