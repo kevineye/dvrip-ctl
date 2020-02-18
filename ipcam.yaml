@@ -18,3 +18,6 @@ alarms:
     ha_sensor_name: cam_1_motion
     ha_url: http://localhost
     ha_token: '...'
+
+warp:
+  - cameras: [ cam_1 ]

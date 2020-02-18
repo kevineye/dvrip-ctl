@@ -6,6 +6,7 @@ use lib 'lib';
 use IPCam::Alarm::HomeAssistant;
 use IPCam::Alarm::Log;
 use IPCam::Alarm::Slack;
+use IPCam::WarpVideo;
 use IPcam;
 
 plugin 'yaml_config' => { class => 'YAML' };
@@ -27,6 +28,11 @@ async sub startup {
     my $type = delete $conf->{type};
     my @cameras = @{delete $conf->{cameras} || []};
     IPCam::Alarm->new_of_type($type, name => $_, log => app->log, camera => $cameras->{$_}, camera_name => $_, %$conf)->start for @cameras;
+  }
+
+  for my $conf (@{$config->{warp}}) {
+    my @cameras = @{delete $conf->{cameras} || []};
+    IPCam::WarpVideo->new(name => $_, log => app->log, camera => $cameras->{$_}, %$conf)->start for @cameras;
   }
 
   # simulate connection close

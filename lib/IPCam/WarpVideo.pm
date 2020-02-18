@@ -6,10 +6,12 @@ use Mojo::File 'path';
 use Mojo::Log;
 
 has camera => undef;
-has dir => undef;
+has name => undef;
+has dir => sub { 'warp/' . shift->name };
 has interval => 300;
 has log => sub {Mojo::Log->new};
 has hi_res => 1;
+has join => 1;
 
 sub start($self) {
   Mojo::IOLoop->recurring($self->interval => sub { $self->tick });
@@ -21,8 +23,8 @@ async sub tick($self) {
     await $self->snap;
     my $time = time;
     my @l = localtime;
-    if ($l[1] * 60 + $l[0] < $self->interval) {
-      await $self->warp_day($time - $self->interval);
+    if ($self->join and $l[1] * 60 + $l[0] < $self->interval) {
+      await $self->warp_day($time - $self->interval) ;
       my $month_file = await $self->warp_month($time - $self->interval);
       my $latest = sprintf "%s/latest.mp4", $self->dir;
       unlink $latest;
@@ -45,7 +47,7 @@ async sub snap($self) {
   if ($self->hi_res) {
     await $self->camera->cmd_monitor($file, 0.1);
   } else {
-    await $self->camera->snap($file);
+    await $self->camera->cmd_snap($file);
   }
   return $file;
 }
