@@ -1,4 +1,4 @@
-package IPcam;
+package IPCam;
 use Mojo::Base 'Mojo::EventEmitter', -strict, -signatures, -async_await;
 
 # initially from https://github.com/667bdrm/sofiactl

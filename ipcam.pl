@@ -3,18 +3,18 @@ use Mojolicious::Lite -strict, -signatures, -async_await;
 
 use lib 'lib';
 
+use IPCam;
 use IPCam::Alarm::HomeAssistant;
 use IPCam::Alarm::Log;
 use IPCam::Alarm::Slack;
 use IPCam::WarpVideo;
-use IPcam;
 
 plugin 'yaml_config' => { class => 'YAML' };
 my $config = app->stash('config');
 my $cameras = {};
 
 async sub init_camera($id) {
-  my $cam = $cameras->{$id} = IPcam->new(log => app->log, %{$config->{cameras}{$id}});
+  my $cam = $cameras->{$id} = IPCam->new(log => app->log, %{$config->{cameras}{$id}});
   await $cam->connect;
   await $cam->cmd_login;
   die "cannot connect to $id (${\$cam->host}:${\$cam->port})\n" unless $cam->sid;

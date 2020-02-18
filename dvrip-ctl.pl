@@ -5,7 +5,7 @@ use FindBin '$RealBin';
 use lib "$RealBin/lib";
 
 use Getopt::Long;
-use IPcam;
+use IPCam;
 use Mojo::JSON qw(encode_json decode_json);
 
 GetOptions(
@@ -79,7 +79,7 @@ push @a, password => $pass if defined $pass;
 push @a, debug => $debug if defined $debug;
 
 async sub main {
-  my $cam = IPcam->new(@a);
+  my $cam = IPCam->new(@a);
   await $cam->connect;
 
   $| = 1;
