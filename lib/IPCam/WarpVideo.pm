@@ -7,7 +7,7 @@ use Mojo::Log;
 
 has camera => undef;
 has name => undef;
-has dir => sub { 'warp/' . shift->name };
+has dir => sub { 'public/warp/' . shift->name };
 has interval => 300;
 has log => sub {Mojo::Log->new};
 has hi_res => 1;
