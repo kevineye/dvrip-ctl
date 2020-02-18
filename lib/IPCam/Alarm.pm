@@ -6,6 +6,7 @@ use Mojo::Log;
 use Mojo::UserAgent;
 
 has camera => undef;
+has camera_name => "camera";
 has stream => undef;
 has name => "camera";
 has last_on => 0;
