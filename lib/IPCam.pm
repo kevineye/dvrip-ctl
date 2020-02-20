@@ -5,6 +5,7 @@ use Mojo::Base 'Mojo::EventEmitter', -strict, -signatures, -async_await;
 
 use Digest::MD5 qw(md5 md5_hex);
 use Mojo::JSON qw(encode_json decode_json);
+use Mojo::Log;
 use Mojo::Promise;
 use Time::Local;
 use Time::HiRes qw(usleep);
@@ -241,6 +242,7 @@ sub clone($self) {
     port     => $self->port,
     user     => $self->user,
     password => $self->password,
+    log      => $self->log,
   );
 }
 

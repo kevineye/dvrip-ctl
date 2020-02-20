@@ -4,6 +4,7 @@ use Mojo::Base -base, -strict, -signatures, -async_await;
 use Mojo::JSON 'encode_json';
 use Mojo::Log;
 use Mojo::UserAgent;
+use Syntax::Keyword::Try;
 
 has camera => undef;
 has camera_name => "camera";
@@ -27,20 +28,25 @@ sub start($self) {
 }
 
 sub _alarm($self, $alarm) {
-  my $t = time;
-  if ($alarm->{Status} eq 'Start') {
-    my $trigger = $t - $self->last_off > $self->reset_time;
-    $self->last_on($t);
-    if ($trigger) {
-      $self->is_on(1);
-      $self->alarm($alarm);
+  try {
+    my $t = time;
+    if ($alarm->{Status} eq 'Start') {
+      my $trigger = $t - $self->last_off > $self->reset_time;
+      $self->last_on($t);
+      if ($trigger) {
+        $self->is_on(1);
+        $self->alarm($alarm);
+      }
     }
-  } else {
-    $self->last_off($t);
-    if ($self->is_on) {
-      $self->is_on(0);
-      $self->alarm($alarm);
+    else {
+      $self->last_off($t);
+      if ($self->is_on) {
+        $self->is_on(0);
+        $self->alarm($alarm);
+      }
     }
+  } catch {
+    $self->log->error($@);
   }
 }
 

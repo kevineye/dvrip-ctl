@@ -21,7 +21,7 @@ async sub init_camera($id) {
   return $cam;
 }
 
-async sub startup {
+async sub main {
   Mojo::Promise->all(map {init_camera($_)} keys %{$config->{cameras}})->wait;
 
   for my $conf (@{$config->{alarms}}) {
@@ -52,9 +52,5 @@ async sub startup {
   return 1;
 }
 
-startup->catch(sub {
-  warn @_;
-  exit -1
-})->wait;
-
+main()->catch(sub {app->log->error($@)})->wait;
 app->start;

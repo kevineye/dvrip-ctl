@@ -4,6 +4,7 @@ use Mojo::Base -base, -strict, -signatures, -async_await;
 use Mojo::IOLoop::ProcBackground;
 use Mojo::File 'path';
 use Mojo::Log;
+use Syntax::Keyword::Try;
 
 has camera => undef;
 has name => undef;
@@ -19,21 +20,20 @@ sub start($self) {
 }
 
 async sub tick($self) {
-  eval {
+  try {
     await $self->snap;
     my $time = time;
     my @l = localtime;
     if ($self->join and $l[1] * 60 + $l[0] < $self->interval) {
-      await $self->warp_day($time - $self->interval) ;
+      await $self->warp_day($time - $self->interval);
       my $month_file = await $self->warp_month($time - $self->interval);
       my $latest = sprintf "%s/latest.mp4", $self->dir;
       unlink $latest;
       my $latest_target = $month_file;
-      substr($latest_target, 0, length($self->dir)+1) = '' if substr($latest_target, 0, length $self->dir) eq $self->dir;
+      substr($latest_target, 0, length($self->dir) + 1) = '' if substr($latest_target, 0, length $self->dir) eq $self->dir;
       symlink $latest_target => $latest;
     }
-  };
-  if ($@) {
+  } catch {
     $self->log->error($@);
   }
 }
