@@ -28,7 +28,7 @@ async sub alarm($self, $alarm) {
               text  => $message,
               emoji => Mojo::JSON->true,
             },
-            image_url => $self->snap_url,
+            image_url => $self->snap_url($alarm),
             alt_text  => $message,
           }
         ]

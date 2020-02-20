@@ -883,6 +883,7 @@ sub _cmd_alarm_start($self) {
 sub _get_transcode_args($, $file, $seconds = 0) {
   $file ||= 'out.h264';
   my $mode = '>';
+  return (substr($file, 1), '|-') if $file =~ /^\|/;
   unless ($file =~ /\.h264$/) {
     $mode = '|-';
     if ($file =~ /\.jpe?g|\.png/) {
