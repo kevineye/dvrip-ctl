@@ -5,28 +5,32 @@ use Mojo::IOLoop::ProcBackground;
 use Mojo::File 'path';
 use Mojo::Log;
 use Syntax::Keyword::Try;
+use Time::Piece;
 
 has camera => undef;
 has name => undef;
 has dir => sub { 'public/warp/' . shift->name };
-has interval => 300;
-has log => sub {Mojo::Log->new};
+has cron => '*/5 * * * *';
 has hi_res => 1;
 has join => 1;
+has log => sub($self) { $self->app ? $self->app->log : Mojo::Log->new};
+has app => undef;
 
 sub start($self) {
-  Mojo::IOLoop->recurring($self->interval => sub { $self->tick });
-  $self->tick;
+  $self->app->plugin(Cron => {$self->cron => sub { $self->tick }});
+}
+
+sub _trunc($t) {
+  Time::Piece->new($t->epoch - $t->hour*3600-$t->min*60-$t->sec);
 }
 
 async sub tick($self) {
   try {
-    await $self->snap;
-    my $time = time;
-    my @l = localtime;
-    if ($self->join and $l[1] * 60 + $l[0] < $self->interval) {
-      await $self->warp_day($time - $self->interval);
-      my $month_file = await $self->warp_month($time - $self->interval);
+    my $time = Time::Piece->new;
+    await $self->snap($time);
+    if ($self->join){#} and $time->minute < 1) {
+      await $self->warp_day(_trunc($time));
+      my $month_file = await $self->warp_month(_trunc($time));
       my $latest = sprintf "%s/latest.mp4", $self->dir;
       unlink $latest;
       my $latest_target = $month_file;
@@ -38,10 +42,9 @@ async sub tick($self) {
   }
 }
 
-async sub snap($self) {
-  my @l = localtime;
-  my $file = sprintf '%s/%04d/%02d/%02d-%02d%02d%02d.jpg', $self->dir, $l[5]+1900, $l[4]+1, @l[3,2,1,0];
-  my $dir = sprintf '%s/%04d/%02d', $self->dir, $l[5]+1900, $l[4]+1;
+async sub snap($self, $time) {
+  my $file = sprintf '%s/%04d/%02d/%02d-%02d%02d%02d.jpg', $self->dir, $time->year, $time->mon, $time->mday, $time->hour, $time->min, $time->sec;
+  my $dir = sprintf '%s/%04d/%02d', $self->dir, $time->year, $time->mon;
   path($dir)->make_path;
   $self->log->debug("snapping $file");
   if ($self->hi_res) {
@@ -53,9 +56,8 @@ async sub snap($self) {
 }
 
 async sub warp_day($self, $time) {
-  my @l = localtime $time;
-  my $glob = sprintf '%s/%04d/%02d/%02d-*.jpg', $self->dir, $l[5]+1900, $l[4]+1, $l[3];
-  my $out = sprintf '%s/%04d/%02d/%02d.mp4', $self->dir, $l[5]+1900, $l[4]+1, $l[3];
+  my $glob = sprintf '%s/%04d/%02d/%02d-*.jpg', $self->dir, $time->year, $time->mon, $time->mday;
+  my $out = sprintf '%s/%04d/%02d/%02d.mp4', $self->dir, $time->year, $time->mon, $time->mday;
   my $p = Mojo::Promise->new;
   my $proc = Mojo::IOLoop::ProcBackground->new;
   $proc->on(dead => sub {
@@ -66,11 +68,10 @@ async sub warp_day($self, $time) {
 }
 
 async sub warp_month($self, $time) {
-  my @l = localtime $time;
-  my @files = glob sprintf '%s/%04d/%02d/*.mp4', $self->dir, $l[5]+1900, $l[4]+1;
+  my @files = glob sprintf '%s/%04d/%02d/*.mp4', $self->dir, $time->year, $time->mon;
   my $list = path(File::Temp->new(UNLINK => 0));
   $list->spurt(join '', map { "file '" . path($_)->to_abs . "'\n"} @files);
-  my $out = sprintf '%s/%04d/%02d.mp4', $self->dir, $l[5]+1900, $l[4]+1;
+  my $out = sprintf '%s/%04d/%02d.mp4', $self->dir, $time->year, $time->mon;
   my $p = Mojo::Promise->new;
   my $proc = Mojo::IOLoop::ProcBackground->new;
   $proc->on(dead => sub {

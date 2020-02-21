@@ -14,7 +14,8 @@ has last_on => 0;
 has last_off => 0;
 has reset_time => 0;
 has is_on => 0;
-has log => sub {Mojo::Log->new};
+has app => undef;
+has log => sub($self) { $self->app ? $self->app->log : Mojo::Log->new};
 
 our $types = {};
 

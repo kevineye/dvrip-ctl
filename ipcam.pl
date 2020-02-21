@@ -27,12 +27,12 @@ async sub main {
   for my $conf (@{$config->{alarms}}) {
     my $type = delete $conf->{type};
     my @cameras = @{delete $conf->{cameras} || []};
-    IPCam::Alarm->new_of_type($type, name => $_, log => app->log, camera => $cameras->{$_}, camera_name => $_, %$conf)->start for @cameras;
+    IPCam::Alarm->new_of_type($type, name => $_, app => app, camera => $cameras->{$_}, camera_name => $_, %$conf)->start for @cameras;
   }
 
   for my $conf (@{$config->{warp}}) {
     my @cameras = @{delete $conf->{cameras} || []};
-    IPCam::WarpVideo->new(name => $_, log => app->log, camera => $cameras->{$_}, %$conf)->start for @cameras;
+    IPCam::WarpVideo->new(name => $_, app => app, camera => $cameras->{$_}, %$conf)->start for @cameras;
   }
 
   # simulate connection close
